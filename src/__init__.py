@@ -1,15 +1,3 @@
-"""Gmail Manager CLI - Módulo principal."""
+"""Gmail Manager CLI - Gerenciador de e-mail Gmail via IMAP."""
 
-from .config.settings import Settings
-from .imap.client import IMAPClient
-from .email.parser import EmailParser
-from .attachments.downloader import AttachmentDownloader
-from .cli.menu import Menu
-
-__all__ = [
-    "Settings",
-    "IMAPClient",
-    "EmailParser",
-    "AttachmentDownloader",
-    "Menu",
-]
+__version__ = "1.0.0"
