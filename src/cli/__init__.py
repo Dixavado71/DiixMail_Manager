@@ -1,5 +1,5 @@
 """Interface CLI do Gmail Manager."""
 
-from .menu import GmailCLI
+from .menu import CLIMenu, display_dashboard
 
-__all__ = ["GmailCLI"]
+__all__ = ["CLIMenu", "display_dashboard"]

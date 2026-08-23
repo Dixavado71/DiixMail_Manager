@@ -1,90 +1,101 @@
 #!/usr/bin/env python3
-"""
-Gmail Manager CLI - Gerenciador de e-mail Gmail via IMAP.
-
-Este é o ponto de entrada da aplicação.
-"""
+"""Gmail Manager CLI - Ponto de entrada da aplicação."""
 
 import sys
-import logging
-from pathlib import Path
+from rich.console import Console
+from rich.panel import Panel
 
-# Configura logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("gmail_manager.log", encoding="utf-8"),
-        logging.StreamHandler(sys.stdout),
-    ],
-)
-
-logger = logging.getLogger(__name__)
+from src.config.settings import get_settings, Settings
+from src.imap.client import IMAPClient
+from src.cli.menu import CLIMenu
 
 
-def main():
-    """Função principal da aplicação."""
-    # Adiciona src ao path
-    src_path = Path(__file__).parent / "src"
-    if str(src_path) not in sys.path:
-        sys.path.insert(0, str(src_path))
-    
-    from rich.console import Console
-    from rich.panel import Panel
-    
-    console = Console()
-    
-    # Banner inicial
+console = Console()
+
+
+def print_banner() -> None:
+    """Imprime banner inicial."""
+    console.print()
     console.print(Panel.fit(
         "[bold blue]GMAIL MANAGER CLI[/bold blue]\n"
-        "[cyan]Gerenciador Premium de E-mails[/cyan]",
+        "[dim]Gerenciador Premium de E-mails via IMAP[/dim]",
         border_style="blue",
     ))
-    
+    console.print()
+
+
+def main() -> int:
+    """Função principal.
+
+    Returns:
+        Código de saída (0 para sucesso).
+    """
+    print_banner()
+
     # Carrega configurações
-    console.print("\n[bold]⚡ Carregando configurações...[/bold]")
-    
+    console.print("[bold yellow]⚡ Carregando configurações...[/bold yellow]")
     try:
-        from src.config.settings import load_settings, Settings
-        
-        settings = load_settings()
-        
-        if not settings.is_valid():
-            console.print("\n[red]✗ Erro: Credenciais inválidas no arquivo .env[/red]")
-            console.print("\n[cyan]Certifique-se de que o arquivo .env contém:[/cyan]")
-            console.print("  GMAIL_EMAIL=seuemail@gmail.com")
-            console.print("  GMAIL_APP_PASSWORD=sua_senha_de_app")
-            console.print("\n[cyan]Para obter a Senha de App:[/cyan]")
-            console.print("  1. Acesse https://myaccount.google.com/apppasswords")
-            console.print("  2. Selecione 'Mail' e seu dispositivo")
-            console.print("  3. Copie a senha gerada (16 caracteres)")
-            console.print("  4. Cole no arquivo .env como GMAIL_APP_PASSWORD")
-            sys.exit(1)
-        
+        settings = get_settings()
         console.print("[green]✓ Configurações carregadas com sucesso[/green]")
-        console.print(f"[cyan]Conta: {settings.gmail_email}[/cyan]")
-        
-    except Exception as e:
-        logger.exception("Erro ao carregar configurações")
-        console.print(f"[red]✗ Erro: {e}[/red]")
-        sys.exit(1)
-    
-    # Inicia CLI
+        console.print(f"[dim]Conta: {settings.gmail_email}[/dim]")
+    except ValueError as e:
+        console.print(f"[bold red]✗ Erro: {e}[/bold red]")
+        console.print()
+        console.print("[dim]Para configurar:[/dim]")
+        console.print("  1. Edite o arquivo [cyan].env[/cyan]")
+        console.print("  2. Adicione suas credenciais do Gmail")
+        console.print("  3. Use uma [cyan]Senha de App[/cyan] (não sua senha normal)")
+        console.print()
+        console.print("[dim]Como gerar Senha de App:[/dim]")
+        console.print("  1. Acesse https://myaccount.google.com/apppasswords")
+        console.print("  2. Selecione 'Mail' e seu dispositivo")
+        console.print("  3. Copie a senha de 16 caracteres")
+        console.print("  4. Cole no arquivo .env como GMAIL_APP_PASSWORD")
+        return 1
+
+    # Conecta ao Gmail
+    console.print("\n[bold yellow]⚡ Conectando ao Gmail...[/bold yellow]")
+    client = IMAPClient(settings)
+
     try:
-        from src.cli.menu import GmailCLI
+        console.print("[dim]⠋ Autenticando...[/dim]", end="\r")
+        if not client.connect():
+            console.print("[bold red]✗ Falha na conexão[/bold red]")
+            return 1
         
-        cli = GmailCLI(settings)
-        cli.run()
-        
-    except KeyboardInterrupt:
-        console.print("\n\n[yellow]⚠ Aplicação encerrada pelo usuário[/yellow]")
-        sys.exit(0)
+        console.print("[green]✓ Conectado com sucesso ao Gmail[/green]")
+
+        # Testa acesso à INBOX
+        console.print("[dim]⠋ Acessando caixa de entrada...[/dim]", end="\r")
+        total = client.select_folder("INBOX")
+        console.print(f"[green]✓ Caixa de entrada selecionada ({total} mensagens)[/green]")
+
+    except ConnectionError as e:
+        console.print(f"[bold red]✗ {e}[/bold red]")
+        console.print()
+        console.print("[dim]Verifique:[/dim]")
+        console.print("  • Seu e-mail está correto no .env")
+        console.print("  • Você está usando Senha de App (não senha normal)")
+        console.print("  • IMAP está habilitado na conta Gmail")
+        console.print("  • Verificação em duas etapas está ativa")
+        return 1
     except Exception as e:
-        logger.exception("Erro fatal na aplicação")
-        console.print(f"\n[red]✗ Erro fatal: {e}[/red]")
-        console.print("[yellow]Verifique o arquivo gmail_manager.log para detalhes[/yellow]")
-        sys.exit(1)
+        console.print(f"[bold red]✗ Erro inesperado: {e}[/bold red]")
+        return 1
+
+    # Inicia menu CLI
+    console.print()
+    menu = CLIMenu(client, settings)
+    
+    try:
+        menu.run()
+    except KeyboardInterrupt:
+        console.print("\n\n[dim]Interrupto pelo usuário.[/dim]")
+    finally:
+        client.disconnect()
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
