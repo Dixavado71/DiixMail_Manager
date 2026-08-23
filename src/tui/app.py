@@ -697,10 +697,17 @@ class MainScreen(Screen):
         """Carrega e-mails em background."""
         try:
             # Seleciona pasta
-            await asyncio.get_event_loop().run_in_executor(
+            select_success = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self.imap_client.select_folder(self.current_folder)
             )
+            
+            if not select_success[0]:
+                self.call_after_refresh(
+                    self._log_message, 
+                    f"[yellow]Não foi possível selecionar a pasta {self.current_folder}[/yellow]"
+                )
+                return
             
             # Busca mensagens
             success, message_ids = await asyncio.get_event_loop().run_in_executor(
@@ -708,29 +715,65 @@ class MainScreen(Screen):
                 lambda: self.search_engine.search_all()
             )
             
-            if success and message_ids:
-                # Pega resumo das últimas 100 mensagens
-                message_ids = sorted(message_ids, key=int, reverse=True)[:100]
-                
-                emails_data = []
-                for msg_id in message_ids:
+            if not success:
+                self.call_after_refresh(
+                    self._log_message, 
+                    "[red]Falha ao buscar mensagens[/red]"
+                )
+                return
+            
+            if not message_ids:
+                self.emails = []
+                self.call_after_refresh(self._populate_email_table)
+                self.call_after_refresh(self._update_counts)
+                self.call_after_refresh(
+                    self._log_message, 
+                    "[green]Nenhum e-mail encontrado na pasta[/green]"
+                )
+                return
+            
+            # Pega resumo das últimas 100 mensagens
+            message_ids = sorted(message_ids, key=int, reverse=True)[:100]
+            
+            emails_data = []
+            for msg_id in message_ids:
+                try:
                     headers = await asyncio.get_event_loop().run_in_executor(
                         None,
                         lambda mid=msg_id: self.message_manager.get_message_headers(mid)
                     )
                     if headers:
                         emails_data.append(headers)
-                
-                self.emails = emails_data
-                # Usa call_after_refresh para atualizar a UI na thread principal
-                self.call_after_refresh(self._populate_email_table)
-                self.call_after_refresh(self._update_counts)
+                except Exception as e:
+                    self.call_after_refresh(
+                        self._log_message, 
+                        f"[yellow]Erro ao buscar header da mensagem {msg_id}: {e}[/yellow]"
+                    )
+                    continue
+            
+            self.emails = emails_data
+            self.call_after_refresh(self._populate_email_table)
+            self.call_after_refresh(self._update_counts)
+            self.call_after_refresh(
+                self._log_message, 
+                f"[green]{len(emails_data)} e-mails carregados com sucesso[/green]"
+            )
                 
         except Exception as e:
-            log_widget = self.query_one("#log-widget", RichLog)
-            log_widget.write(f"[red]Erro ao carregar e-mails: {e}[/red]")
+            self.call_after_refresh(
+                self._log_message, 
+                f"[red]Erro ao carregar e-mails: {e}[/red]"
+            )
             # Tenta atualizar a UI mesmo em caso de erro
             self.call_after_refresh(self._update_counts)
+
+    def _log_message(self, message: str) -> None:
+        """Adiciona mensagem ao log."""
+        try:
+            log_widget = self.query_one("#log-widget", RichLog)
+            log_widget.write(message)
+        except Exception:
+            pass
 
     def _populate_email_table(self) -> None:
         """Popula a tabela com e-mails."""
