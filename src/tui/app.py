@@ -90,7 +90,7 @@ FooterKey {
     color: $text;
 }
 
-FooterKey kbd {
+FooterKey > Kbd {
     background: $primary;
     color: white;
 }
