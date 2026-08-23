@@ -124,6 +124,25 @@ class Menu:
         """
         self.console.print("\n[cyan bold]⚡ Conectando ao Gmail...[/cyan bold]")
 
+        # Verifica credenciais primeiro
+        if not self.settings.gmail_email or not self.settings.gmail_app_password:
+            self.console.print("[red]✗ Erro: Credenciais não configuradas no arquivo .env[/red]")
+            self._show_setup_instructions()
+            return False
+
+        # Detecta credenciais de teste
+        is_test_credentials = (
+            "teste@gmail.com" in self.settings.gmail_email.lower() or
+            "testpassword" in self.settings.gmail_app_password.lower() or
+            self.settings.gmail_app_password == "testpassword123"
+        )
+
+        if is_test_credentials:
+            self.console.print("[yellow]⚠ Credenciais de teste detectadas![/yellow]")
+            self.console.print("[yellow]Iniciando modo de demonstração com dados mockados...[/yellow]\n")
+            self._start_demo_mode()
+            return True
+
         # Usa thread para não bloquear a UI
         future = self.executor.submit(
             self.imap_client.connect,
@@ -154,15 +173,66 @@ class Menu:
             if success:
                 self.current_folder = "INBOX"
                 self.console.print(f"[green]✓ Caixa de entrada selecionada ([bold]{count}[/bold] mensagens)[/green]")
+                
+                # Carrega mensagens iniciais
+                self._load_current_messages()
         else:
             self.console.print(f"\n[red]✗ Erro: {message}[/red]")
-            self.console.print("\n[yellow]Verifique:[/yellow]")
-            self.console.print("  1. Suas credenciais no arquivo .env")
-            self.console.print("  2. Se o acesso IMAP está habilitado no Gmail")
-            self.console.print("  3. Se você está usando uma Senha de App (não a senha normal)")
+            self._show_setup_instructions()
             return False
 
         return True
+
+    def _show_setup_instructions(self) -> None:
+        """Mostra instruções para configurar credenciais reais."""
+        self.console.print("\n[yellow]╔══════════════════════════════════════════════════╗[/yellow]")
+        self.console.print("[yellow]║     COMO CONFIGURAR CREDENCIAIS REAIS           ║[/yellow]")
+        self.console.print("[yellow]╚══════════════════════════════════════════════════╝[/yellow]")
+        self.console.print("\n[bold]1. Edite o arquivo .env:[/bold]")
+        self.console.print("   [cyan]GMAIL_EMAIL=seu_email@gmail.com[/cyan]")
+        self.console.print("   [cyan]GMAIL_APP_PASSWORD=sua_senha_de_app_16_caracteres[/cyan]")
+        self.console.print("\n[bold]2. Gere uma Senha de App no Gmail:[/bold]")
+        self.console.print("   • Acesse sua conta Google")
+        self.console.print("   • Vá em [cyan]Segurança → Verificação em duas etapas[/cyan]")
+        self.console.print("   • Em [cyan]Senhas de app[/cyan], gere uma nova senha")
+        self.console.print("   • Use essa senha (16 caracteres) no arquivo .env")
+        self.console.print("\n[bold]3. Habilite acesso IMAP no Gmail:[/bold]")
+        self.console.print("   • Acesse Gmail no navegador")
+        self.console.print("   • Configurações → Encaminhamento e POP/IMAP")
+        self.console.print("   • Ative [cyan]Acesso IMAP[/cyan]")
+        self.console.print("\n[yellow]Após configurar, execute: python app.py[/yellow]\n")
+
+    def _start_demo_mode(self) -> None:
+        """Inicia modo de demonstração com dados mockados."""
+        self.is_connected = True
+        self.current_folder = "INBOX"
+        
+        # Dados mockados para demonstração
+        demo_messages = [
+            {"id": "1", "from_name": "Google", "from_email": "no-reply@google.com", "subject": "Confirmação de segurança", "date_str": "01/01/2025 10:00", "is_read": True, "attachment_count": 0},
+            {"id": "2", "from_name": "Amazon", "from_email": "pedidos@amazon.com.br", "subject": "Seu pedido foi enviado", "date_str": "01/01/2025 09:30", "is_read": False, "attachment_count": 0},
+            {"id": "3", "from_name": "LinkedIn", "from_email": "notifications@linkedin.com", "subject": "Você tem novas conexões", "date_str": "31/12/2024 18:45", "is_read": True, "attachment_count": 0},
+            {"id": "4", "from_name": "GitHub", "from_email": "noreply@github.com", "subject": "[GitHub] Security alert", "date_str": "31/12/2024 14:20", "is_read": False, "attachment_count": 1},
+            {"id": "5", "from_name": "Netflix", "from_email": "info@netflix.com", "subject": "Novidades este mês", "date_str": "30/12/2024 08:00", "is_read": True, "attachment_count": 0},
+            {"id": "6", "from_name": "Banco Inter", "from_email": "notif@inter.co", "subject": "Fatura disponível", "date_str": "29/12/2024 16:30", "is_read": False, "attachment_count": 1},
+            {"id": "7", "from_name": "Microsoft", "from_email": "account-security-noreply@accountprotection.microsoft.com", "subject": "Entrada recente detectada", "date_str": "28/12/2024 11:15", "is_read": True, "attachment_count": 0},
+            {"id": "8", "from_name": "Spotify", "from_email": "no-reply@spotify.com", "subject": "Sua playlist semanal está pronta", "date_str": "27/12/2024 07:00", "is_read": True, "attachment_count": 0},
+        ]
+        
+        self.current_messages = [m["id"] for m in demo_messages]
+        self.message_cache = {m["id"]: m for m in demo_messages}
+        
+        self.console.print("[green bold]✓ Modo de demonstração ativado![/green bold]")
+        self.console.print("[dim]Dados fictícios carregados para demonstração da interface.[/dim]\n")
+
+    def _load_current_messages(self) -> None:
+        """Carrega a lista atual de mensagens da pasta selecionada."""
+        if not self.is_connected:
+            return
+            
+        success, message_ids = self.search_engine.search_all()
+        if success and message_ids:
+            self.current_messages = message_ids
 
     def _reconnect(self) -> bool:
         """
@@ -241,39 +311,45 @@ class Menu:
         """Exibe a caixa de entrada com carregamento assíncrono."""
         self.console.print("\n[cyan bold]⚡ Carregando caixa de entrada...[/cyan bold]")
 
-        # Seleciona INBOX
-        success, _, count = self.imap_client.select_folder("INBOX")
-        if not success:
-            self.console.print("[red]Falha ao acessar caixa de entrada[/red]")
-            return
-
-        self.current_folder = "INBOX"
-
-        # Busca todas as mensagens usando thread
-        future = self.executor.submit(self.search_engine.search_all)
-        
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=self.console,
-        ) as progress:
-            task = progress.add_task("Buscando mensagens...", total=None)
-            try:
-                success, message_ids = future.result(timeout=60)
-                progress.update(task, completed=True)
-            except Exception as e:
-                self.console.print(f"[red]Erro na busca: {e}[/red]")
+        # Verifica se está em modo de demonstração
+        if self.message_cache and len(self.message_cache) > 0:
+            # Modo de demonstração - usa dados mockados
+            summaries = list(self.message_cache.values())[:50]
+            self.console.print("[green]✓ Dados de demonstração carregados[/green]")
+        else:
+            # Modo real - seleciona INBOX
+            success, _, count = self.imap_client.select_folder("INBOX")
+            if not success:
+                self.console.print("[red]Falha ao acessar caixa de entrada[/red]")
                 return
 
-        if not success or not message_ids:
-            self.console.print("[yellow]Nenhum e-mail encontrado.[/yellow]")
-            Prompt.ask("\nPressione Enter para continuar")
-            return
+            self.current_folder = "INBOX"
 
-        self.current_messages = message_ids
+            # Busca todas as mensagens usando thread
+            future = self.executor.submit(self.search_engine.search_all)
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=self.console,
+            ) as progress:
+                task = progress.add_task("Buscando mensagens...", total=None)
+                try:
+                    success, message_ids = future.result(timeout=60)
+                    progress.update(task, completed=True)
+                except Exception as e:
+                    self.console.print(f"[red]Erro na busca: {e}[/red]")
+                    return
 
-        # Obtém resumo das últimas 50 mensagens com cache
-        summaries = self._get_messages_summary_cached(message_ids, limit=50)
+            if not success or not message_ids:
+                self.console.print("[yellow]Nenhum e-mail encontrado.[/yellow]")
+                Prompt.ask("\nPressione Enter para continuar")
+                return
+
+            self.current_messages = message_ids
+
+            # Obtém resumo das últimas 50 mensagens com cache
+            summaries = self._get_messages_summary_cached(message_ids, limit=50)
 
         if not summaries:
             self.console.print("[yellow]Nenhum e-mail encontrado.[/yellow]")
@@ -282,7 +358,7 @@ class Menu:
 
         # Cria tabela premium
         table = Table(
-            title=f"📥 Caixa de Entrada ([bold cyan]{len(message_ids)}[/bold cyan] e-mails total)",
+            title=f"📥 Caixa de Entrada ([bold cyan]{len(summaries)}[/bold cyan] e-mails exibidos)",
             show_header=True,
             header_style="bold cyan",
             border_style="blue",
@@ -292,18 +368,18 @@ class Menu:
         table.add_column("Data", style="white", width=16)
         table.add_column("Remetente", style="green", width=35)
         table.add_column("Assunto", style="yellow", width=50)
-        table.add_column("Status", style="magenta", width=10)
+        table.add_column("Status", style="magenta", width=12)
         table.add_column("Anexos", style="blue", width=8, justify="center")
 
         for msg in summaries:
-            status = "[red bold]🆕 NOVO[/red bold]" if not msg["is_read"] else "[green]✓ LIDO[/green]"
-            anexos = f"[blue]{msg['attachment_count']} 📎[/blue]" if msg["attachment_count"] > 0 else "—"
+            status = "[red bold]🆕 NOVO[/red bold]" if not msg.get("is_read", True) else "[green]✓ LIDO[/green]"
+            anexos = f"[blue]{msg.get('attachment_count', 0)} 📎[/blue]" if msg.get("attachment_count", 0) > 0 else "—"
 
             table.add_row(
-                f"[bold]{msg['id']}[/bold]",
-                msg["date_str"],
-                msg["from_name"][:33] + "..." if len(msg["from_name"]) > 35 else msg["from_name"],
-                msg["subject"][:47] + "..." if len(msg["subject"]) > 50 else msg["subject"],
+                f"[bold]{msg.get('id', '?')}[/bold]",
+                msg.get("date_str", "?"),
+                msg.get("from_name", "?")[:33] + "..." if len(msg.get("from_name", "")) > 35 else msg.get("from_name", "?"),
+                msg.get("subject", "?")[:47] + "..." if len(msg.get("subject", "")) > 50 else msg.get("subject", "?"),
                 status,
                 anexos,
             )
