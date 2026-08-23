@@ -1,75 +1,66 @@
-"""Cliente IMAP para conexão com o Gmail."""
+"""Cliente IMAP para conexão com Gmail."""
 
 import imaplib
-import logging
+import email
 from typing import Optional
+from datetime import datetime
 
-logger = logging.getLogger(__name__)
+from src.config.settings import Settings
 
 
 class IMAPClient:
-    """Cliente IMAP para gerenciar conexão com o Gmail."""
+    """Cliente IMAP para gerenciar conexão com Gmail."""
 
-    def __init__(self, email: str, password: str, server: str = "imap.gmail.com", port: int = 993):
-        """
-        Inicializa o cliente IMAP.
+    def __init__(self, settings: Settings):
+        """Inicializa o cliente IMAP.
 
         Args:
-            email: Endereço de e-mail do Gmail.
-            password: Senha de app do Gmail.
-            server: Servidor IMAP.
-            port: Porta IMAP.
+            settings: Configurações da aplicação.
         """
-        self.email = email
-        self.password = password
-        self.server = server
-        self.port = port
+        self.settings = settings
         self.connection: Optional[imaplib.IMAP4_SSL] = None
         self.selected_folder: Optional[str] = None
         self.total_messages: int = 0
 
     def connect(self) -> bool:
-        """
-        Estabelece conexão com o servidor IMAP.
+        """Estabelece conexão com o servidor IMAP.
 
         Returns:
             True se conectado com sucesso, False caso contrário.
         """
         try:
-            logger.info(f"Conectando a {self.server}:{self.port}...")
-            self.connection = imaplib.IMAP4_SSL(self.server, self.port)
-            
-            logger.info("Autenticando...")
-            self.connection.login(self.email, self.password)
-            
-            logger.info("Autenticação bem-sucedida!")
+            self.connection = imaplib.IMAP4_SSL(
+                self.settings.imap_server,
+                self.settings.imap_port
+            )
+            self.connection.login(
+                self.settings.gmail_email,
+                self.settings.gmail_app_password
+            )
             return True
-            
         except imaplib.IMAP4.error as e:
-            logger.error(f"Erro de autenticação IMAP: {e}")
-            self.connection = None
-            return False
+            error_msg = str(e).lower()
+            if "authentication" in error_msg or "invalid" in error_msg:
+                raise ConnectionError(
+                    "Falha na autenticação. Verifique seu e-mail e senha de app."
+                ) from e
+            raise ConnectionError(f"Erro de conexão IMAP: {e}") from e
         except Exception as e:
-            logger.error(f"Erro ao conectar: {e}")
-            self.connection = None
-            return False
+            raise ConnectionError(f"Erro ao conectar: {e}") from e
 
     def disconnect(self) -> None:
-        """Encerra a conexão IMAP."""
+        """Fecha a conexão com o servidor."""
         if self.connection:
             try:
                 self.connection.logout()
-                logger.info("Conexão encerrada.")
-            except Exception as e:
-                logger.warning(f"Erro ao encerrar conexão: {e}")
+            except Exception:
+                pass
             finally:
                 self.connection = None
                 self.selected_folder = None
-                self.total_messages = 0
 
     def reconnect(self) -> bool:
-        """
-        Reconecta ao servidor IMAP.
+        """Tenta reconectar ao servidor.
 
         Returns:
             True se reconectado com sucesso.
@@ -77,272 +68,481 @@ class IMAPClient:
         self.disconnect()
         return self.connect()
 
-    def is_connected(self) -> bool:
-        """Verifica se há uma conexão ativa."""
-        if self.connection is None:
-            return False
-        
-        try:
-            self.connection.noop()
-            return True
-        except Exception:
-            return False
-
-    def select_folder(self, folder: str = "INBOX", readonly: bool = True) -> tuple[bool, int]:
-        """
-        Seleciona uma pasta/marcador.
+    def select_folder(self, folder: str = "INBOX") -> int:
+        """Seleciona uma pasta/marcador.
 
         Args:
-            folder: Nome da pasta.
-            readonly: Se True, abre em modo somente leitura.
+            folder: Nome da pasta (padrão: INBOX).
 
         Returns:
-            Tuple (sucesso, número_de_mensagens).
+            Número total de mensagens na pasta.
         """
-        if not self.is_connected():
-            logger.error("Não há conexão IMAP ativa.")
-            return False, 0
+        if not self.connection:
+            raise ConnectionError("Não conectado ao servidor")
 
         try:
             # Tenta selecionar a pasta
-            status, data = self.connection.select(folder, readonly=readonly)
+            status, data = self.connection.select(folder)
             
-            if status == "OK":
-                self.selected_folder = folder
-                # Extrai o número de mensagens
-                msg_count = int(data[0]) if data and data[0] else 0
-                self.total_messages = msg_count
-                logger.info(f"Pasta {folder} selecionada ({msg_count} mensagens)")
-                return True, msg_count
-            else:
-                logger.warning(f"Falha ao selecionar pasta {folder}: {data}")
-                return False, 0
-                
-        except Exception as e:
-            logger.error(f"Erro ao selecionar pasta {folder}: {e}")
-            return False, 0
+            if status != "OK":
+                raise ValueError(f"Pasta '{folder}' não encontrada")
+            
+            self.selected_folder = folder
+            
+            # Extrai o número de mensagens
+            self.total_messages = int(data[0].decode() if data[0] else 0)
+            return self.total_messages
+            
+        except imaplib.IMAP4.error as e:
+            raise ValueError(f"Erro ao selecionar pasta '{folder}': {e}") from e
 
-    def search(self, criteria: str = "ALL") -> list[int]:
-        """
-        Pesquisa mensagens na pasta selecionada.
+    def search(self, criteria: str = "ALL") -> list[str]:
+        """Busca mensagens na pasta selecionada.
 
         Args:
-            criteria: Critério de busca IMAP.
+            criteria: Critério de busca IMAP (padrão: ALL).
 
         Returns:
             Lista de IDs das mensagens encontradas.
         """
-        if not self.is_connected():
-            logger.error("Não há conexão IMAP ativa.")
-            return []
-
-        if not self.selected_folder:
-            logger.error("Nenhuma pasta selecionada.")
-            return []
+        if not self.connection:
+            raise ConnectionError("Não conectado ao servidor")
 
         try:
-            # Usa unpacking flexível para lidar com diferentes formatos de resposta
+            # Usa unpacking flexível para lidar com diferentes respostas
             status, *data = self.connection.search(None, criteria)
             
             if status != "OK":
-                logger.warning(f"Busca retornou status: {status}")
                 return []
-
+            
+            # Processa dados retornados
             ids = []
             for item in data:
                 if item is None:
                     continue
                 if isinstance(item, bytes):
-                    # Converte bytes para string e divide
-                    id_str = item.decode("utf-8", errors="ignore").strip()
-                    if id_str:
-                        ids.extend([int(x) for x in id_str.split() if x.strip().isdigit()])
+                    ids.extend(item.decode().split())
                 elif isinstance(item, str):
-                    if item.strip():
-                        ids.extend([int(x) for x in item.split() if x.strip().isdigit()])
-
-            logger.info(f"Busca '{criteria}' retornou {len(ids)} mensagens")
-            return sorted(ids, reverse=True)  # Mais recentes primeiro
-
-        except Exception as e:
-            logger.error(f"Erro na busca '{criteria}': {e}")
-            # Fallback: tenta buscar todas as mensagens diretamente
+                    ids.extend(item.split())
+            
+            return ids
+            
+        except imaplib.IMAP4.error as e:
+            # Fallback: tenta busca alternativa
             try:
                 status, data = self.connection.search(None, "1:*")
-                if status == "OK" and data and data[0]:
-                    id_str = data[0].decode("utf-8", errors="ignore")
-                    ids = [int(x) for x in id_str.split() if x.strip().isdigit()]
-                    return sorted(ids, reverse=True)
+                if status == "OK" and data[0]:
+                    return data[0].decode().split()
             except Exception:
                 pass
+            raise ValueError(f"Erro na busca: {e}") from e
+
+    def fetch_headers(self, message_ids: list[str], count: int = 20) -> list[dict]:
+        """Busca headers de mensagens específicas.
+
+        Args:
+            message_ids: Lista de IDs das mensagens.
+            count: Número máximo de mensagens para buscar.
+
+        Returns:
+            Lista de dicionários com headers das mensagens.
+        """
+        if not self.connection:
+            raise ConnectionError("Não conectado ao servidor")
+
+        messages = []
+        
+        # Pega apenas as últimas 'count' mensagens
+        ids_to_fetch = message_ids[-count:] if len(message_ids) > count else message_ids
+        
+        for msg_id in reversed(ids_to_fetch):
+            try:
+                status, data = self.connection.fetch(msg_id, "(RFC822.HEADER)")
+                
+                if status != "OK" or not data:
+                    continue
+                
+                # Parse do header
+                raw_email = data[0][1]
+                msg = email.message_from_bytes(raw_email)
+                
+                # Extrai informações
+                subject = self._decode_header(msg.get("Subject", "Sem assunto"))
+                from_addr = self._decode_header(msg.get("From", "Desconhecido"))
+                date_str = msg.get("Date", "")
+                
+                # Formata data
+                try:
+                    date_obj = email.utils.parsedate_to_datetime(date_str)
+                    date_formatted = date_obj.strftime("%d/%m/%Y %H:%M")
+                except Exception:
+                    date_formatted = date_str[:20] if date_str else "Data inválida"
+                
+                # Verifica se tem anexos
+                has_attachments = self._check_has_attachments(msg)
+                
+                # Verifica se é lido
+                is_read = self._check_is_read(msg_id)
+                
+                messages.append({
+                    "id": msg_id,
+                    "subject": subject,
+                    "from": from_addr,
+                    "date": date_formatted,
+                    "has_attachments": has_attachments,
+                    "is_read": is_read,
+                })
+                
+            except Exception as e:
+                # Log silencioso para não travar o carregamento
+                print(f"[DEBUG] Erro ao buscar mensagem {msg_id}: {e}")
+                continue
+        
+        return messages
+
+    def fetch_message(self, message_id: str) -> Optional[dict]:
+        """Busca uma mensagem completa.
+
+        Args:
+            message_id: ID da mensagem.
+
+        Returns:
+            Dicionário com dados completos da mensagem ou None.
+        """
+        if not self.connection:
+            raise ConnectionError("Não conectado ao servidor")
+
+        try:
+            status, data = self.connection.fetch(message_id, "(RFC822)")
+            
+            if status != "OK" or not data:
+                return None
+            
+            raw_email = data[0][1]
+            msg = email.message_from_bytes(raw_email)
+            
+            # Extrai headers
+            subject = self._decode_header(msg.get("Subject", "Sem assunto"))
+            from_addr = self._decode_header(msg.get("From", "Desconhecido"))
+            to_addr = self._decode_header(msg.get("To", ""))
+            date_str = msg.get("Date", "")
+            
+            try:
+                date_obj = email.utils.parsedate_to_datetime(date_str)
+                date_formatted = date_obj.strftime("%d/%m/%Y %H:%M:%S")
+            except Exception:
+                date_formatted = date_str
+            
+            # Extrai corpo
+            body_plain, body_html = self._extract_body(msg)
+            
+            # Extrai anexos
+            attachments = self._extract_attachments_info(msg)
+            
+            return {
+                "id": message_id,
+                "subject": subject,
+                "from": from_addr,
+                "to": to_addr,
+                "date": date_formatted,
+                "body_plain": body_plain,
+                "body_html": body_html,
+                "attachments": attachments,
+            }
+            
+        except Exception as e:
+            print(f"[DEBUG] Erro ao buscar mensagem completa {message_id}: {e}")
+            return None
+
+    def mark_as_read(self, message_ids: list[str]) -> bool:
+        """Marca mensagens como lidas.
+
+        Args:
+            message_ids: Lista de IDs das mensagens.
+
+        Returns:
+            True se todas foram marcadas.
+        """
+        if not self.connection:
+            return False
+
+        try:
+            ids_str = ",".join(message_ids)
+            self.connection.store(ids_str, "+FLAGS", "\\Seen")
+            return True
+        except Exception:
+            return False
+
+    def mark_as_unread(self, message_ids: list[str]) -> bool:
+        """Marca mensagens como não lidas.
+
+        Args:
+            message_ids: Lista de IDs das mensagens.
+
+        Returns:
+            True se todas foram marcadas.
+        """
+        if not self.connection:
+            return False
+
+        try:
+            ids_str = ",".join(message_ids)
+            self.connection.store(ids_str, "-FLAGS", "\\Seen")
+            return True
+        except Exception:
+            return False
+
+    def delete_messages(self, message_ids: list[str]) -> bool:
+        """Marca mensagens para exclusão.
+
+        Args:
+            message_ids: Lista de IDs das mensagens.
+
+        Returns:
+            True se todas foram marcadas.
+        """
+        if not self.connection:
+            return False
+
+        try:
+            ids_str = ",".join(message_ids)
+            self.connection.store(ids_str, "+FLAGS", "\\Deleted")
+            self.connection.expunge()
+            return True
+        except Exception:
+            return False
+
+    def move_messages(self, message_ids: list[str], destination: str) -> bool:
+        """Move mensagens para outra pasta.
+
+        Args:
+            message_ids: Lista de IDs das mensagens.
+            destination: Pasta de destino.
+
+        Returns:
+            True se movidas com sucesso.
+        """
+        if not self.connection:
+            return False
+
+        try:
+            # Gmail usa COPY + DELETE para mover
+            ids_str = ",".join(message_ids)
+            
+            # Copia para destino
+            self.connection.copy(ids_str, destination)
+            
+            # Marca como deletadas na origem
+            self.connection.store(ids_str, "+FLAGS", "\\Deleted")
+            self.connection.expunge()
+            
+            return True
+        except Exception:
+            return False
+
+    def get_folders(self) -> list[str]:
+        """Lista todas as pastas disponíveis.
+
+        Returns:
+            Lista de nomes de pastas.
+        """
+        if not self.connection:
             return []
 
-    def fetch(self, message_id: int, parts: str = "(RFC822.HEADER)") -> Optional[bytes]:
-        """
-        Busca uma mensagem específica.
-
-        Args:
-            message_id: ID da mensagem.
-            parts: Partes da mensagem a buscar.
-
-        Returns:
-            Dados da mensagem ou None se falhar.
-        """
-        if not self.is_connected():
-            logger.error("Não há conexão IMAP ativa.")
-            return None
-
         try:
-            status, data = self.connection.fetch(str(message_id), parts)
+            status, data = self.connection.list()
             
-            if status == "OK" and data:
-                # Encontra a parte que contém os dados
-                for item in data:
-                    if isinstance(item, tuple) and len(item) >= 2:
-                        return item[1]
-                    elif isinstance(item, bytes):
-                        return item
-                
-                # Se data[0] for tuple
-                if data and isinstance(data[0], tuple) and len(data[0]) >= 2:
-                    return data[0][1]
-                    
-            logger.warning(f"Fetch retornou status: {status}")
-            return None
+            if status != "OK":
+                return ["INBOX"]
+            
+            folders = []
+            for item in data:
+                if isinstance(item, bytes):
+                    # Parse da resposta LIST
+                    parts = item.decode().split('"')
+                    if len(parts) >= 3:
+                        folder_name = parts[-2]
+                        # Remove prefixo INBOX. se existir
+                        if folder_name and folder_name != "INBOX":
+                            folders.append(folder_name)
+                        elif folder_name == "INBOX":
+                            folders.insert(0, "INBOX")
+            
+            return folders if folders else ["INBOX"]
+            
+        except Exception:
+            return ["INBOX"]
 
-        except Exception as e:
-            logger.error(f"Erro ao buscar mensagem {message_id}: {e}")
-            return None
-
-    def fetch_full(self, message_id: int) -> Optional[bytes]:
-        """
-        Busca a mensagem completa (headers + corpo).
+    def download_attachment(self, message_id: str, attachment_index: int, 
+                           save_path: str) -> bool:
+        """Baixa um anexo específico.
 
         Args:
             message_id: ID da mensagem.
+            attachment_index: Índice do anexo (0-based).
+            save_path: Caminho para salvar o arquivo.
 
         Returns:
-            Dados completos da mensagem ou None.
+            True se baixado com sucesso.
         """
-        return self.fetch(message_id, "RFC822")
-
-    def mark_as_read(self, message_ids: list[int]) -> bool:
-        """
-        Marca mensagens como lidas.
-
-        Args:
-            message_ids: Lista de IDs das mensagens.
-
-        Returns:
-            True se todas foram marcadas com sucesso.
-        """
-        if not self.is_connected() or not message_ids:
+        if not self.connection:
             return False
 
         try:
-            ids_str = ",".join(str(i) for i in message_ids)
-            status, _ = self.connection.store(ids_str, "-FLAGS", "\\Seen")
-            success = status == "OK"
-            if success:
-                logger.info(f"{len(message_ids)} mensagens marcadas como lidas")
-            return success
-        except Exception as e:
-            logger.error(f"Erro ao marcar como lidas: {e}")
-            return False
-
-    def mark_as_unread(self, message_ids: list[int]) -> bool:
-        """
-        Marca mensagens como não lidas.
-
-        Args:
-            message_ids: Lista de IDs das mensagens.
-
-        Returns:
-            True se todas foram marcadas com sucesso.
-        """
-        if not self.is_connected() or not message_ids:
-            return False
-
-        try:
-            ids_str = ",".join(str(i) for i in message_ids)
-            status, _ = self.connection.store(ids_str, "+FLAGS", "\\Seen")
-            success = status == "OK"
-            if success:
-                logger.info(f"{len(message_ids)} mensagens marcadas como não lidas")
-            return success
-        except Exception as e:
-            logger.error(f"Erro ao marcar como não lidas: {e}")
-            return False
-
-    def delete(self, message_ids: list[int]) -> bool:
-        """
-        Marca mensagens para exclusão.
-
-        Args:
-            message_ids: Lista de IDs das mensagens.
-
-        Returns:
-            True se todas foram marcadas com sucesso.
-        """
-        if not self.is_connected() or not message_ids:
-            return False
-
-        try:
-            ids_str = ",".join(str(i) for i in message_ids)
-            status, _ = self.connection.store(ids_str, "+FLAGS", "\\Deleted")
-            success = status == "OK"
-            if success:
-                logger.info(f"{len(message_ids)} mensagens marcadas para exclusão")
-            return success
-        except Exception as e:
-            logger.error(f"Erro ao marcar para exclusão: {e}")
-            return False
-
-    def expunge(self) -> bool:
-        """
-        Remove permanentemente as mensagens marcadas para exclusão.
-
-        Returns:
-            True se executado com sucesso.
-        """
-        if not self.is_connected():
-            return False
-
-        try:
-            status, _ = self.connection.expunge()
-            success = status == "OK"
-            if success:
-                logger.info("Mensagens excluídas permanentemente")
-            return success
-        except Exception as e:
-            logger.error(f"Erro ao expungir: {e}")
-            return False
-
-    def move_to_folder(self, message_ids: list[int], folder: str) -> bool:
-        """
-        Move mensagens para outra pasta.
-
-        Args:
-            message_ids: Lista de IDs das mensagens.
-            folder: Pasta de destino.
-
-        Returns:
-            True se movido com sucesso.
-        """
-        if not self.is_connected() or not message_ids:
-            return False
-
-        try:
-            ids_str = ",".join(str(i) for i in message_ids)
-            # Tenta usar COPY seguido de DELETE (método compatível)
-            status, _ = self.connection.copy(ids_str, folder)
-            if status == "OK":
-                # Marca as originais para exclusão
-                self.delete(message_ids)
-                self.expunge()
-                logger.info(f"{len(message_ids)} mensagens movidas para {folder}")
+            status, data = self.connection.fetch(message_id, "(RFC822)")
+            
+            if status != "OK" or not data:
+                return False
+            
+            msg = email.message_from_bytes(data[0][1])
+            
+            # Encontra o anexo
+            attachments = []
+            for part in msg.walk():
+                if part.get_content_disposition() == "attachment":
+                    attachments.append(part)
+            
+            if attachment_index >= len(attachments):
+                return False
+            
+            part = attachments[attachment_index]
+            filename = part.get_filename()
+            
+            if not filename:
+                return False
+            
+            # Salva arquivo
+            payload = part.get_payload(decode=True)
+            if payload:
+                with open(save_path, "wb") as f:
+                    f.write(payload)
                 return True
+            
             return False
+            
         except Exception as e:
-            logger.error(f"Erro ao mover mensagens: {e}")
+            print(f"[DEBUG] Erro ao baixar anexo: {e}")
             return False
+
+    def _decode_header(self, header: str) -> str:
+        """Decodifica header MIME.
+
+        Args:
+            header: String do header.
+
+        Returns:
+            Header decodificado.
+        """
+        if not header:
+            return ""
+        
+        decoded_parts = email.header.decode_header(header)
+        result = []
+        
+        for text, encoding in decoded_parts:
+            if isinstance(text, bytes):
+                try:
+                    result.append(text.decode(encoding or "utf-8"))
+                except UnicodeDecodeError:
+                    try:
+                        result.append(text.decode("latin-1"))
+                    except Exception:
+                        result.append(text.decode("utf-8", errors="replace"))
+            else:
+                result.append(text)
+        
+        return "".join(result)
+
+    def _check_has_attachments(self, msg) -> bool:
+        """Verifica se mensagem tem anexos."""
+        for part in msg.walk():
+            if part.get_content_disposition() == "attachment":
+                return True
+        return False
+
+    def _check_is_read(self, message_id: str) -> bool:
+        """Verifica se mensagem foi lida."""
+        if not self.connection:
+            return False
+        
+        try:
+            status, data = self.connection.fetch(message_id, "(FLAGS)")
+            if status == "OK" and data:
+                flags = data[0][1].decode()
+                return "\\Seen" in flags
+        except Exception:
+            pass
+        return False
+
+    def _extract_body(self, msg) -> tuple[str, str]:
+        """Extrai corpo do e-mail.
+
+        Returns:
+            Tupla (body_plain, body_html).
+        """
+        body_plain = ""
+        body_html = ""
+        
+        if msg.is_multipart():
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                content_disposition = str(part.get_content_disposition() or "")
+                
+                # Ignora anexos
+                if "attachment" in content_disposition:
+                    continue
+                
+                try:
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        if content_type == "text/plain":
+                            body_plain += payload.decode(
+                                part.get_content_charset() or "utf-8",
+                                errors="replace"
+                            )
+                        elif content_type == "text/html":
+                            body_html += payload.decode(
+                                part.get_content_charset() or "utf-8",
+                                errors="replace"
+                            )
+                except Exception:
+                    continue
+        else:
+            try:
+                payload = msg.get_payload(decode=True)
+                if payload:
+                    if msg.get_content_type() == "text/html":
+                        body_html = payload.decode(
+                            msg.get_content_charset() or "utf-8",
+                            errors="replace"
+                        )
+                    else:
+                        body_plain = payload.decode(
+                            msg.get_content_charset() or "utf-8",
+                            errors="replace"
+                        )
+            except Exception:
+                pass
+        
+        return body_plain, body_html
+
+    def _extract_attachments_info(self, msg) -> list[dict]:
+        """Extrai informações sobre anexos.
+
+        Returns:
+            Lista de dicionários com info dos anexos.
+        """
+        attachments = []
+        
+        for part in msg.walk():
+            if part.get_content_disposition() == "attachment":
+                filename = part.get_filename()
+                if filename:
+                    size = len(part.get_payload(decode=True) or b"")
+                    attachments.append({
+                        "filename": filename,
+                        "size": size,
+                        "content_type": part.get_content_type(),
+                    })
+        
+        return attachments

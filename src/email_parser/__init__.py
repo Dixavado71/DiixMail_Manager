@@ -1,5 +1,5 @@
-"""Módulo para parseamento de e-mails."""
+"""Módulo para processamento de e-mails."""
 
-from .parser import EmailParser, EmailMessage, Attachment
+from .parser import EmailParser
 
-__all__ = ["EmailParser", "EmailMessage", "Attachment"]
+__all__ = ["EmailParser"]
