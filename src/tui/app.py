@@ -635,27 +635,60 @@ class MainScreen(Screen):
 
     def on_mount(self) -> None:
         """Executado quando a tela é montada."""
-        self._connect_to_server()
+        # Configura a tabela primeiro
         self._setup_email_table()
+        # Adiciona mensagem inicial no log
+        self.call_after_refresh(self._log_message, "[blue]Iniciando conexão com o servidor...[/blue]")
+        # Conecta ao servidor após a UI estar pronta
+        self.set_timer(0.3, self._connect_to_server)
 
     def _setup_email_table(self) -> None:
         """Configura a tabela de e-mails."""
-        table = self.query_one("#email-table", DataTable)
-        table.add_columns(
-            "✓",  # Selecionado
-            "ID",
-            "Status",
-            "Remetente",
-            "Assunto",
-            "Data",
-            "Anexos",
-        )
-        table.cursor_type = "row"
+        try:
+            table = self.query_one("#email-table", DataTable)
+            table.clear()
+            table.add_columns(
+                "✓",  # Selecionado
+                "ID",
+                "Status",
+                "Remetente",
+                "Assunto",
+                "Data",
+                "Anexos",
+            )
+            table.cursor_type = "row"
+        except Exception as e:
+            # Se a tabela ainda não estiver pronta, tenta novamente após um breve delay
+            self.set_timer(0.5, self._setup_email_table)
 
     @work(exclusive=True)
     async def _connect_to_server(self) -> None:
         """Conecta ao servidor IMAP em background."""
         try:
+            # Verifica se as credenciais são de teste
+            is_test_credentials = (
+                self.settings.gmail_email == "teste@gmail.com" and 
+                self.settings.gmail_app_password == "testpassword123"
+            )
+            
+            if is_test_credentials:
+                # Modo de demonstração com dados mockados
+                self.call_after_refresh(
+                    self._log_message,
+                    "[yellow]⚠️ Credenciais de teste detectadas. Usando modo de demonstração.[/yellow]"
+                )
+                self.call_after_refresh(
+                    self._log_message,
+                    "[blue]Para usar com Gmail real, atualize o arquivo .env com suas credenciais.[/blue]"
+                )
+                # Simula conexão bem-sucedida
+                self.is_connected = True
+                self.call_after_refresh(self._update_status, True, "Modo demonstração (dados mockados)")
+                await asyncio.sleep(0.5)
+                self._load_mock_emails()
+                return
+            
+            # Conexão real com Gmail
             success, message = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self.imap_client.connect(
@@ -666,60 +699,99 @@ class MainScreen(Screen):
             
             if success:
                 self.is_connected = True
+                # A conexão já define imap_client.is_connected = True no cliente
                 # Usa call_after_refresh para atualizar a UI na thread principal
                 self.call_after_refresh(self._update_status, True, message)
+                # Aguarda um breve momento para garantir que a conexão está estável
+                await asyncio.sleep(0.5)
                 # Inicia o worker de carregamento de e-mails diretamente
                 self._load_emails()
             else:
                 self.call_after_refresh(self._update_status, False, message)
                 
         except Exception as e:
-            self.call_after_refresh(self._update_status, False, f"Erro: {e}")
+            self.call_after_refresh(self._update_status, False, str(e))
 
     def _update_status(self, connected: bool, message: str) -> None:
         """Atualiza a barra de status."""
-        indicator = self.query_one("#status-indicator", Static)
-        status_text = self.query_one("#status-text", Static)
-        
-        if connected:
-            indicator.update("🟢 ")
-            indicator.remove_class("status-disconnected")
-            indicator.add_class("status-connected")
-            status_text.update("Conectado")
-        else:
-            indicator.update("🔴 ")
-            indicator.remove_class("status-connected")
-            indicator.add_class("status-disconnected")
-            status_text.update(message)
+        try:
+            indicator = self.query_one("#status-indicator", Static)
+            status_text = self.query_one("#status-text", Static)
+            
+            if connected:
+                indicator.update("🟢 ")
+                indicator.remove_class("status-disconnected")
+                indicator.add_class("status-connected")
+                status_text.update("Conectado ao servidor")
+                # Atualiza mensagem no log
+                self._log_message("[green]✓ Conexão estabelecida com sucesso[/green]")
+            else:
+                indicator.update("🔴 ")
+                indicator.remove_class("status-connected")
+                indicator.add_class("status-disconnected")
+                status_msg = message[:50] if message else "Erro desconhecido"
+                status_text.update(status_msg)
+                # Atualiza mensagem no log
+                self._log_message(f"[red]✗ Erro na conexão: {status_msg}[/red]")
+        except Exception as e:
+            # Falha silenciosa na atualização do status
+            print(f"Erro ao atualizar status: {e}")
+            pass
 
     @work(exclusive=True)
     async def _load_emails(self) -> None:
         """Carrega e-mails em background."""
         try:
+            # Verifica se está conectado
+            if not self.is_connected or not self.imap_client.is_connected:
+                self.call_after_refresh(
+                    self._log_message, 
+                    "[red]Não conectado ao servidor. Não é possível carregar e-mails.[/red]"
+                )
+                self.call_after_refresh(self._populate_email_table)
+                self.call_after_refresh(self._update_counts)
+                return
+            
             # Seleciona pasta
-            select_success = await asyncio.get_event_loop().run_in_executor(
+            select_result = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self.imap_client.select_folder(self.current_folder)
             )
             
-            if not select_success[0]:
+            # select_folder retorna (success, message, msg_count)
+            if not isinstance(select_result, tuple) or len(select_result) < 3:
+                select_success = False
+            else:
+                select_success = select_result[0]
+            
+            if not select_success:
                 self.call_after_refresh(
                     self._log_message, 
                     f"[yellow]Não foi possível selecionar a pasta {self.current_folder}[/yellow]"
                 )
+                self.call_after_refresh(self._populate_email_table)
+                self.call_after_refresh(self._update_counts)
                 return
             
             # Busca mensagens
-            success, message_ids = await asyncio.get_event_loop().run_in_executor(
+            search_result = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self.search_engine.search_all()
             )
+            
+            if not isinstance(search_result, tuple) or len(search_result) < 2:
+                success = False
+                message_ids = []
+            else:
+                success, message_ids = search_result[:2]
             
             if not success:
                 self.call_after_refresh(
                     self._log_message, 
                     "[red]Falha ao buscar mensagens[/red]"
                 )
+                self.call_after_refresh(self._populate_email_table)
+                self.call_after_refresh(self._update_counts)
                 return
             
             if not message_ids:
@@ -765,14 +837,146 @@ class MainScreen(Screen):
                 f"[red]Erro ao carregar e-mails: {e}[/red]"
             )
             # Tenta atualizar a UI mesmo em caso de erro
+            self.call_after_refresh(self._populate_email_table)
             self.call_after_refresh(self._update_counts)
+
+    def _load_mock_emails(self) -> None:
+        """Carrega e-mails mockados para demonstração."""
+        from datetime import datetime, timedelta
+        
+        # Dados mockados de e-mails para demonstração
+        mock_emails = [
+            {
+                "id": "1",
+                "from_name": "Google Support",
+                "from_email": "support@google.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Bem-vindo ao Gmail Manager TUI",
+                "date_str": (datetime.now() - timedelta(hours=1)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(hours=1),
+                "is_read": False,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "Este é um e-mail de demonstração. Para ver e-mails reais, configure suas credenciais no arquivo .env.",
+            },
+            {
+                "id": "2",
+                "from_name": "GitHub Notifications",
+                "from_email": "notifications@github.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Novo commit no seu repositório",
+                "date_str": (datetime.now() - timedelta(hours=2)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(hours=2),
+                "is_read": False,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "Um novo commit foi adicionado ao seu repositório.",
+            },
+            {
+                "id": "3",
+                "from_name": "Amazon.com.br",
+                "from_email": "pedidos@amazon.com.br",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Seu pedido foi enviado",
+                "date_str": (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=1),
+                "is_read": True,
+                "attachment_count": 1,
+                "flags": "",
+                "snippet": "Seu pedido #12345 foi enviado e chegará em breve.",
+            },
+            {
+                "id": "4",
+                "from_name": "Microsoft Teams",
+                "from_email": "noreply@teams.microsoft.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Você foi adicionado a uma equipe",
+                "date_str": (datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=2),
+                "is_read": True,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "João Silva adicionou você à equipe 'Projeto X'.",
+            },
+            {
+                "id": "5",
+                "from_name": "Netflix",
+                "from_email": "info@netflix.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Novidades que você vai adorar",
+                "date_str": (datetime.now() - timedelta(days=3)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=3),
+                "is_read": True,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "Confira os novos filmes e séries adicionados este mês.",
+            },
+            {
+                "id": "6",
+                "from_name": "LinkedIn",
+                "from_email": "messages-noreply@linkedin.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Nova conexão sugerida",
+                "date_str": (datetime.now() - timedelta(days=5)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=5),
+                "is_read": False,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "Maria Santos quer se conectar com você no LinkedIn.",
+            },
+            {
+                "id": "7",
+                "from_name": "Dropbox",
+                "from_email": "no-reply@dropbox.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Arquivo compartilhado com você",
+                "date_str": (datetime.now() - timedelta(days=7)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=7),
+                "is_read": True,
+                "attachment_count": 2,
+                "flags": "",
+                "snippet": "Carlos Oliveira compartilhou 2 arquivos com você.",
+            },
+            {
+                "id": "8",
+                "from_name": "Slack",
+                "from_email": "notification@slack.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Nova mensagem no canal #geral",
+                "date_str": (datetime.now() - timedelta(days=10)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=10),
+                "is_read": True,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "Ana Pereira mencionou você no canal #geral.",
+            },
+        ]
+        
+        self.emails = mock_emails
+        self.call_after_refresh(self._populate_email_table)
+        self.call_after_refresh(self._update_counts)
+        self.call_after_refresh(
+            self._log_message,
+            f"[green]{len(mock_emails)} e-mails de demonstração carregados[/green]"
+        )
 
     def _log_message(self, message: str) -> None:
         """Adiciona mensagem ao log."""
         try:
             log_widget = self.query_one("#log-widget", RichLog)
-            log_widget.write(message)
-        except Exception:
+            if log_widget:
+                log_widget.write(message)
+        except Exception as e:
+            # Se não conseguir escrever no log, imprime no console para debug
+            print(f"[LOG] {message}")
             pass
 
     def _populate_email_table(self) -> None:
@@ -783,24 +987,32 @@ class MainScreen(Screen):
             
             if not self.emails:
                 # Adiciona uma linha informativa quando não há e-mails
-                table.add_row("", "", "📭", "Nenhum e-mail", "", "", "", key="empty")
+                table.add_row("", "", "📭", "Nenhum e-mail encontrado", "", "", "", key="empty")
                 return
             
             for email in self.emails:
-                msg_id = email.get('id', '')
+                msg_id = str(email.get('id', ''))
                 is_read = email.get('is_read', True)
                 attachment_count = email.get('attachment_count', 0)
                 
                 status_icon = "🆕" if not is_read else "📬"
                 attachment_icon = f"📎{attachment_count}" if attachment_count > 0 else ""
                 
+                from_display = email.get('from_name', '') or email.get('from', '')
+                from_display = from_display[:30] if from_display else "Desconhecido"
+                
+                subject_display = email.get('subject', '') or "(Sem assunto)"
+                subject_display = subject_display[:40]
+                
+                date_display = email.get('date_str', '')[:16] if email.get('date_str') else ""
+                
                 table.add_row(
                     "✓" if msg_id in self.selected_emails else "",
                     msg_id,
                     status_icon,
-                    email.get('from_name', '')[:30] or email.get('from', '')[:30],
-                    email.get('subject', '')[:40] or "(Sem assunto)",
-                    email.get('date_str', '')[:10],
+                    from_display,
+                    subject_display,
+                    date_display,
                     attachment_icon,
                     key=msg_id,
                 )
@@ -815,11 +1027,14 @@ class MainScreen(Screen):
     def _update_counts(self) -> None:
         """Atualiza contadores na UI."""
         try:
-            email_count = self.query_one("#email-count", Static)
-            selected_count = self.query_one("#selected-count", Static)
-            email_count.update(str(len(self.emails)))
-            selected_count.update(str(len(self.selected_emails)))
-        except Exception:
+            email_count_widget = self.query_one("#email-count", Static)
+            selected_count_widget = self.query_one("#selected-count", Static)
+            folder_widget = self.query_one("#current-folder", Static)
+            
+            email_count_widget.update(str(len(self.emails)))
+            selected_count_widget.update(str(len(self.selected_emails)))
+            folder_widget.update(self.current_folder)
+        except Exception as e:
             # Silenciosamente ignora erros de atualização de UI
             pass
 
