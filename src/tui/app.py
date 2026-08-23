@@ -720,8 +720,8 @@ class MainScreen(Screen):
                         emails_data.append(headers)
                 
                 self.emails = emails_data
-                self.call_from_thread(self._populate_email_table)
-                self.call_from_thread(self._update_counts)
+                self.app.call_from_thread(self._populate_email_table)
+                self.app.call_from_thread(self._update_counts)
                 
         except Exception as e:
             log_widget = self.query_one("#log-widget", RichLog)
