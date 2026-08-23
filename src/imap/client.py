@@ -225,12 +225,27 @@ class IMAPClient:
         try:
             status, data = self.connection.fetch(message_id, parts)
 
-            if status == "OK":
-                return True, data[0][1] if data else b""
+            if status == "OK" and data:
+                # Extrai dados de forma robusta para diferentes formatos de resposta
+                for item in data:
+                    if isinstance(item, tuple) and len(item) >= 2:
+                        return True, item[1]
+                    elif isinstance(item, bytes):
+                        return True, item
+                
+                # Fallback: tenta acessar primeiro elemento
+                if len(data) > 0:
+                    if isinstance(data[0], tuple) and len(data[0]) >= 2:
+                        return True, data[0][1]
+                    elif isinstance(data[0], bytes):
+                        return True, data[0]
+                
+                return True, b""
             else:
                 return False, b""
 
-        except Exception:
+        except Exception as e:
+            print(f"[DEBUG] Erro no fetch da mensagem {message_id}: {e}")
             return False, b""
 
     def delete(self, message_id: str) -> tuple[bool, str]:

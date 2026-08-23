@@ -31,22 +31,32 @@ class MessageManager:
         Returns:
             dict ou None: Metadados da mensagem ou None se falhar
         """
-        success, data = self.imap_client.fetch(message_id, "(RFC822.HEADER)")
+        try:
+            success, data = self.imap_client.fetch(message_id, "(RFC822.HEADER)")
 
-        if not success or not data:
-            # Tenta abordagem alternativa com UID FETCH
-            try:
-                conn = self.imap_client.get_connection()
-                if conn and self.imap_client.is_connected:
-                    status, msg_data = conn.uid('FETCH', message_id, '(RFC822.HEADER)')
-                    if status == 'OK' and msg_data:
-                        data = msg_data[0][1]
-                    else:
-                        return None
-            except Exception:
+            if not success or not data:
+                # Tenta abordagem alternativa com UID FETCH
+                try:
+                    conn = self.imap_client.get_connection()
+                    if conn and self.imap_client.is_connected:
+                        status, *msg_data = conn.uid('FETCH', message_id, '(RFC822.HEADER)')
+                        if status == 'OK' and msg_data:
+                            # Extrai dados de forma robusta
+                            for item in msg_data:
+                                if isinstance(item, tuple) and len(item) >= 2:
+                                    data = item[1]
+                                    break
+                                elif isinstance(item, bytes):
+                                    data = item
+                                    break
+                        else:
+                            return None
+                except Exception:
+                    return None
+
+            if not data:
                 return None
 
-        try:
             msg = message_from_bytes(data)
 
             # Extrai remetente
@@ -97,7 +107,7 @@ class MessageManager:
         except Exception as e:
             print(f"[DEBUG] Erro ao processar mensagem {message_id}: {e}")
             return None
-
+    
     def get_full_message(self, message_id: str) -> Optional[dict]:
         """
         Obtém uma mensagem completa com conteúdo.
@@ -108,12 +118,31 @@ class MessageManager:
         Returns:
             dict ou None: Mensagem completa ou None se falhar
         """
-        success, data = self.imap_client.fetch(message_id, "(RFC822)")
-
-        if not success or not data:
-            return None
-
         try:
+            success, data = self.imap_client.fetch(message_id, "(RFC822)")
+
+            if not success or not data:
+                # Tenta abordagem alternativa com UID FETCH
+                try:
+                    conn = self.imap_client.get_connection()
+                    if conn and self.imap_client.is_connected:
+                        status, *msg_data = conn.uid('FETCH', message_id, '(RFC822)')
+                        if status == 'OK' and msg_data:
+                            for item in msg_data:
+                                if isinstance(item, tuple) and len(item) >= 2:
+                                    data = item[1]
+                                    break
+                                elif isinstance(item, bytes):
+                                    data = item
+                                    break
+                        else:
+                            return None
+                except Exception:
+                    return None
+
+            if not data:
+                return None
+
             msg = message_from_bytes(data)
             headers = self.get_message_headers(message_id)
 
@@ -165,7 +194,8 @@ class MessageManager:
                 "raw_message": data,
             }
 
-        except Exception:
+        except Exception as e:
+            print(f"[DEBUG] Erro ao obter mensagem completa {message_id}: {e}")
             return None
 
     def _count_attachments(self, msg) -> int:
@@ -257,12 +287,20 @@ class MessageManager:
         summaries = []
 
         # Ordena IDs em ordem decrescente (mais recentes primeiro)
-        sorted_ids = sorted(message_ids, key=int, reverse=True)
+        try:
+            sorted_ids = sorted(message_ids, key=int, reverse=True)
+        except (ValueError, TypeError):
+            # Se não conseguir ordenar por inteiro, usa ordem original
+            sorted_ids = list(message_ids)[:limit]
 
         for msg_id in sorted_ids[:limit]:
-            summary = self.get_message_headers(msg_id)
-            if summary:
-                summaries.append(summary)
+            try:
+                summary = self.get_message_headers(msg_id)
+                if summary:
+                    summaries.append(summary)
+            except Exception as e:
+                print(f"[DEBUG] Erro ao obter headers da mensagem {msg_id}: {e}")
+                continue
 
         return summaries
 
