@@ -1,80 +1,88 @@
 #!/usr/bin/env python3
 """
-Gmail Manager CLI - Gerenciador de e-mail Gmail via IMAP com Interface CLI Premium
+Gmail Manager CLI - Gerenciador de e-mail Gmail via IMAP.
 
-Aplicação CLI moderna para gerenciar e-mails do Gmail usando IMAP.
-Interface premium com Rich, suporte a threads, cache e operações assíncronas.
-
-Uso:
-    python app.py              # Inicia interface CLI completa
-
-Recursos Premium:
-    - Interface moderna com Rich
-    - Threads para operações assíncronas
-    - Cache inteligente de mensagens
-    - Download de anexos em paralelo
-    - Busca avançada de e-mails
-    - Gerenciamento de pastas/marcadores
-    - Status em tempo real
-
-Requisitos:
-    - Python 3.11+
-    - Arquivo .env configurado com credenciais do Gmail
-    - Acesso IMAP habilitado na conta Gmail
-    - Senha de app do Google (não a senha normal)
+Este é o ponto de entrada da aplicação.
 """
 
 import sys
+import logging
 from pathlib import Path
 
-# Adiciona o diretório raiz ao path para imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Configura logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("gmail_manager.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
 
-from rich.console import Console
-from rich.panel import Panel
-
-from src.config.settings import Settings
+logger = logging.getLogger(__name__)
 
 
 def main():
     """Função principal da aplicação."""
-    console = Console()
-
-    # Carrega configurações
-    console.print("\n[cyan bold]⚡ Carregando configurações...[/cyan bold]")
-    settings = Settings()
-
-    # Valida configurações
-    valid, message = settings.validate()
-
-    if not valid:
-        console.print(f"\n[red bold]✗ Erro de configuração: {message}[/red bold]")
-        console.print("\n[yellow]📋 Instruções de configuração:[/yellow]")
-        console.print("  1. Copie .env.example para .env")
-        console.print("  2. Edite .env com suas credenciais do Gmail")
-        console.print("  3. Use uma Senha de App do Google (não sua senha normal)")
-        console.print("\n[blue]🔐 Para criar uma Senha de App:[/blue]")
-        console.print("  1. Acesse https://myaccount.google.com/apppasswords")
-        console.print("  2. Selecione 'Mail' e seu dispositivo")
-        console.print("  3. Copie a senha gerada para o arquivo .env")
-        sys.exit(1)
-
-    console.print("[green bold]✓ Configurações carregadas com sucesso[/green bold]")
-    console.print(f"[dim]Conta: {settings.gmail_email}[/dim]")
-
-    console.print("\n[cyan]Iniciando interface CLI Premium...[/cyan]\n")
+    # Adiciona src ao path
+    src_path = Path(__file__).parent / "src"
+    if str(src_path) not in sys.path:
+        sys.path.insert(0, str(src_path))
     
-    from src.cli.menu import Menu
+    from rich.console import Console
+    from rich.panel import Panel
+    
+    console = Console()
+    
+    # Banner inicial
+    console.print(Panel.fit(
+        "[bold blue]GMAIL MANAGER CLI[/bold blue]\n"
+        "[cyan]Gerenciador Premium de E-mails[/cyan]",
+        border_style="blue",
+    ))
+    
+    # Carrega configurações
+    console.print("\n[bold]⚡ Carregando configurações...[/bold]")
     
     try:
-        menu = Menu(settings)
-        menu.start()
+        from src.config.settings import load_settings, Settings
+        
+        settings = load_settings()
+        
+        if not settings.is_valid():
+            console.print("\n[red]✗ Erro: Credenciais inválidas no arquivo .env[/red]")
+            console.print("\n[cyan]Certifique-se de que o arquivo .env contém:[/cyan]")
+            console.print("  GMAIL_EMAIL=seuemail@gmail.com")
+            console.print("  GMAIL_APP_PASSWORD=sua_senha_de_app")
+            console.print("\n[cyan]Para obter a Senha de App:[/cyan]")
+            console.print("  1. Acesse https://myaccount.google.com/apppasswords")
+            console.print("  2. Selecione 'Mail' e seu dispositivo")
+            console.print("  3. Copie a senha gerada (16 caracteres)")
+            console.print("  4. Cole no arquivo .env como GMAIL_APP_PASSWORD")
+            sys.exit(1)
+        
+        console.print("[green]✓ Configurações carregadas com sucesso[/green]")
+        console.print(f"[cyan]Conta: {settings.gmail_email}[/cyan]")
+        
+    except Exception as e:
+        logger.exception("Erro ao carregar configurações")
+        console.print(f"[red]✗ Erro: {e}[/red]")
+        sys.exit(1)
+    
+    # Inicia CLI
+    try:
+        from src.cli.menu import GmailCLI
+        
+        cli = GmailCLI(settings)
+        cli.run()
+        
     except KeyboardInterrupt:
-        console.print("\n\n[yellow]Aplicação encerrada pelo usuário.[/yellow]")
+        console.print("\n\n[yellow]⚠ Aplicação encerrada pelo usuário[/yellow]")
         sys.exit(0)
     except Exception as e:
-        console.print(f"\n[red]Erro crítico: {e}[/red]")
-        console.print("\n[yellow]Verifique o arquivo .env e tente novamente.[/yellow]")
+        logger.exception("Erro fatal na aplicação")
+        console.print(f"\n[red]✗ Erro fatal: {e}[/red]")
+        console.print("[yellow]Verifique o arquivo gmail_manager.log para detalhes[/yellow]")
         sys.exit(1)
 
 

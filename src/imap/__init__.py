@@ -1,4 +1,4 @@
-"""Módulo IMAP para conexão com o Gmail."""
+"""Módulo IMAP para conexão e operações com Gmail."""
 
 from .client import IMAPClient
 from .folders import FolderManager

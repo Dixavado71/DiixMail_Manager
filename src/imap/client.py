@@ -1,360 +1,348 @@
 """Cliente IMAP para conexão com o Gmail."""
 
 import imaplib
-import ssl
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class IMAPClient:
-    """Classe para gerenciar a conexão IMAP com o Gmail."""
+    """Cliente IMAP para gerenciar conexão com o Gmail."""
 
-    def __init__(self, server: str, port: int):
+    def __init__(self, email: str, password: str, server: str = "imap.gmail.com", port: int = 993):
         """
         Inicializa o cliente IMAP.
 
         Args:
-            server: Servidor IMAP (ex: imap.gmail.com)
-            port: Porta IMAP (ex: 993)
+            email: Endereço de e-mail do Gmail.
+            password: Senha de app do Gmail.
+            server: Servidor IMAP.
+            port: Porta IMAP.
         """
+        self.email = email
+        self.password = password
         self.server = server
         self.port = port
         self.connection: Optional[imaplib.IMAP4_SSL] = None
-        self.is_connected = False
+        self.selected_folder: Optional[str] = None
+        self.total_messages: int = 0
 
-    def connect(self, email: str, password: str) -> tuple[bool, str]:
+    def connect(self) -> bool:
         """
-        Estabelece conexão com o servidor IMAP e faz login.
-
-        Args:
-            email: Endereço de e-mail do Gmail
-            password: Senha de app do Gmail
+        Estabelece conexão com o servidor IMAP.
 
         Returns:
-            Tuple[bool, str]: (sucesso, mensagem)
+            True se conectado com sucesso, False caso contrário.
         """
         try:
-            # Cria conexão SSL
-            context = ssl.create_default_context()
-            self.connection = imaplib.IMAP4_SSL(self.server, self.port, ssl_context=context)
-
-            # Faz login
-            self.connection.login(email, password)
-            self.is_connected = True
-
-            return True, "Conectado com sucesso ao Gmail"
-
+            logger.info(f"Conectando a {self.server}:{self.port}...")
+            self.connection = imaplib.IMAP4_SSL(self.server, self.port)
+            
+            logger.info("Autenticando...")
+            self.connection.login(self.email, self.password)
+            
+            logger.info("Autenticação bem-sucedida!")
+            return True
+            
         except imaplib.IMAP4.error as e:
-            error_msg = str(e)
-            if "Authentication failed" in error_msg or "Invalid credentials" in error_msg:
-                return False, "Falha na autenticação. Verifique seu e-mail e senha de app."
-            elif "Please log in via your web browser" in error_msg:
-                return False, "Acesso bloqueado. Verifique se o acesso IMAP está habilitado no Gmail."
-            else:
-                return False, f"Erro IMAP: {error_msg}"
-
-        except ssl.SSLError as e:
-            return False, f"Erro de conexão SSL: {e}"
-
+            logger.error(f"Erro de autenticação IMAP: {e}")
+            self.connection = None
+            return False
         except Exception as e:
-            return False, f"Erro inesperado: {e}"
+            logger.error(f"Erro ao conectar: {e}")
+            self.connection = None
+            return False
 
     def disconnect(self) -> None:
-        """Fecha a conexão IMAP de forma segura."""
+        """Encerra a conexão IMAP."""
         if self.connection:
             try:
                 self.connection.logout()
-            except Exception:
-                pass  # Ignora erros ao desconectar
+                logger.info("Conexão encerrada.")
+            except Exception as e:
+                logger.warning(f"Erro ao encerrar conexão: {e}")
             finally:
                 self.connection = None
-                self.is_connected = False
+                self.selected_folder = None
+                self.total_messages = 0
 
-    def reconnect(self, email: str, password: str) -> tuple[bool, str]:
+    def reconnect(self) -> bool:
         """
         Reconecta ao servidor IMAP.
 
-        Args:
-            email: Endereço de e-mail do Gmail
-            password: Senha de app do Gmail
-
         Returns:
-            Tuple[bool, str]: (sucesso, mensagem)
+            True se reconectado com sucesso.
         """
         self.disconnect()
-        return self.connect(email, password)
+        return self.connect()
 
-    def select_folder(self, folder_name: str = "INBOX", read_only: bool = False) -> tuple[bool, str, int]:
+    def is_connected(self) -> bool:
+        """Verifica se há uma conexão ativa."""
+        if self.connection is None:
+            return False
+        
+        try:
+            self.connection.noop()
+            return True
+        except Exception:
+            return False
+
+    def select_folder(self, folder: str = "INBOX", readonly: bool = True) -> tuple[bool, int]:
         """
-        Seleciona uma pasta/marcações para operação.
+        Seleciona uma pasta/marcador.
 
         Args:
-            folder_name: Nome da pasta (padrão: INBOX)
-            read_only: Se True, abre em modo somente leitura
+            folder: Nome da pasta.
+            readonly: Se True, abre em modo somente leitura.
 
         Returns:
-            Tuple[bool, str, int]: (sucesso, mensagem, número de mensagens)
+            Tuple (sucesso, número_de_mensagens).
         """
-        if not self.connection or not self.is_connected:
-            return False, "Não conectado ao servidor", 0
+        if not self.is_connected():
+            logger.error("Não há conexão IMAP ativa.")
+            return False, 0
 
         try:
-            # Codifica o nome da pasta para UTF-7 (padrão IMAP)
-            encoded_folder = folder_name.encode("utf-7").decode("utf-7")
-
-            if read_only:
-                status, messages = self.connection.examine(encoded_folder)
-            else:
-                status, messages = self.connection.select(encoded_folder)
-
-            if status == "OK":
-                # Gmail pode retornar diferentes formatos
-                # Extrai o número de mensagens de forma robusta
-                msg_count = 0
-                if messages:
-                    for msg in messages:
-                        if isinstance(msg, bytes):
-                            try:
-                                msg_count = int(msg.decode())
-                                break
-                            except (ValueError, UnicodeDecodeError):
-                                continue
-                        elif isinstance(msg, str):
-                            try:
-                                msg_count = int(msg)
-                                break
-                            except ValueError:
-                                continue
-                
-                return True, f"Pasta '{folder_name}' selecionada", msg_count
-            else:
-                return False, f"Falha ao selecionar pasta: {folder_name}", 0
-
-        except Exception as e:
-            return False, f"Erro ao selecionar pasta: {e}", 0
-
-    def search(self, criteria: str) -> tuple[bool, list[str]]:
-        """
-        Pesquisa e-mails usando critérios IMAP.
-
-        Args:
-            criteria: Critério de busca (ex: 'ALL', 'FROM email', 'SUBJECT texto')
-
-        Returns:
-            Tuple[bool, List[str]]: (sucesso, lista de IDs das mensagens)
-        """
-        if not self.connection or not self.is_connected:
-            return False, []
-
-        try:
-            # Tenta primeiro com o critério original
-            status, *data = self.connection.search(None, criteria)
-
-            if status == "OK":
-                # Gmail pode retornar diferentes formatos de resposta
-                # Extrai os IDs de mensagem de forma robusta
-                message_ids = []
-                
-                for item in data:
-                    if item and isinstance(item, bytes):
-                        message_ids.extend(item.split())
-                    elif item and isinstance(item, list):
-                        for sub_item in item:
-                            if isinstance(sub_item, bytes):
-                                message_ids.extend(sub_item.split())
-                
-                if message_ids:
-                    return True, [msg_id.decode() if isinstance(msg_id, bytes) else msg_id for msg_id in message_ids]
-                
-                # Se não encontrou, tenta com critério alternativo para Gmail
-                # Gmail as vezes requer "1:*" para buscar todas as mensagens
-                status2, *data2 = self.connection.search(None, "1:*")
-                if status2 == "OK" and data2:
-                    message_ids = []
-                    for item in data2:
-                        if item and isinstance(item, bytes):
-                            message_ids.extend(item.split())
-                    
-                    if message_ids:
-                        return True, [msg_id.decode() if isinstance(msg_id, bytes) else msg_id for msg_id in message_ids]
-                
-                # Tenta buscar mensagens não lidas como fallback
-                status3, *data3 = self.connection.search(None, "UNSEEN")
-                if status3 == "OK" and data3:
-                    message_ids = []
-                    for item in data3:
-                        if item and isinstance(item, bytes):
-                            message_ids.extend(item.split())
-                    
-                    if message_ids:
-                        return True, [msg_id.decode() if isinstance(msg_id, bytes) else msg_id for msg_id in message_ids]
-                    
-                return True, []  # Retorna lista vazia mas com sucesso
+            # Tenta selecionar a pasta
+            status, data = self.connection.select(folder, readonly=readonly)
             
-            return False, []
+            if status == "OK":
+                self.selected_folder = folder
+                # Extrai o número de mensagens
+                msg_count = int(data[0]) if data and data[0] else 0
+                self.total_messages = msg_count
+                logger.info(f"Pasta {folder} selecionada ({msg_count} mensagens)")
+                return True, msg_count
+            else:
+                logger.warning(f"Falha ao selecionar pasta {folder}: {data}")
+                return False, 0
+                
+        except Exception as e:
+            logger.error(f"Erro ao selecionar pasta {folder}: {e}")
+            return False, 0
+
+    def search(self, criteria: str = "ALL") -> list[int]:
+        """
+        Pesquisa mensagens na pasta selecionada.
+
+        Args:
+            criteria: Critério de busca IMAP.
+
+        Returns:
+            Lista de IDs das mensagens encontradas.
+        """
+        if not self.is_connected():
+            logger.error("Não há conexão IMAP ativa.")
+            return []
+
+        if not self.selected_folder:
+            logger.error("Nenhuma pasta selecionada.")
+            return []
+
+        try:
+            # Usa unpacking flexível para lidar com diferentes formatos de resposta
+            status, *data = self.connection.search(None, criteria)
+            
+            if status != "OK":
+                logger.warning(f"Busca retornou status: {status}")
+                return []
+
+            ids = []
+            for item in data:
+                if item is None:
+                    continue
+                if isinstance(item, bytes):
+                    # Converte bytes para string e divide
+                    id_str = item.decode("utf-8", errors="ignore").strip()
+                    if id_str:
+                        ids.extend([int(x) for x in id_str.split() if x.strip().isdigit()])
+                elif isinstance(item, str):
+                    if item.strip():
+                        ids.extend([int(x) for x in item.split() if x.strip().isdigit()])
+
+            logger.info(f"Busca '{criteria}' retornou {len(ids)} mensagens")
+            return sorted(ids, reverse=True)  # Mais recentes primeiro
 
         except Exception as e:
-            # Em caso de erro, tenta abordagem alternativa com UID SEARCH
+            logger.error(f"Erro na busca '{criteria}': {e}")
+            # Fallback: tenta buscar todas as mensagens diretamente
             try:
-                status, *data = self.connection.uid('SEARCH', 'CHARSET', 'UTF-8', 'ALL')
-                if status == "OK" and data:
-                    message_ids = []
-                    for item in data:
-                        if item and isinstance(item, bytes):
-                            message_ids.extend(item.split())
-                    
-                    if message_ids:
-                        return True, [msg_id.decode() if isinstance(msg_id, bytes) else msg_id for msg_id in message_ids]
+                status, data = self.connection.search(None, "1:*")
+                if status == "OK" and data and data[0]:
+                    id_str = data[0].decode("utf-8", errors="ignore")
+                    ids = [int(x) for x in id_str.split() if x.strip().isdigit()]
+                    return sorted(ids, reverse=True)
             except Exception:
                 pass
-            return False, []
+            return []
 
-    def fetch(self, message_id: str, parts: str = "(RFC822.HEADER RFC822.TEXT)") -> tuple[bool, bytes]:
+    def fetch(self, message_id: int, parts: str = "(RFC822.HEADER)") -> Optional[bytes]:
         """
         Busca uma mensagem específica.
 
         Args:
-            message_id: ID da mensagem
-            parts: Partes da mensagem a buscar
+            message_id: ID da mensagem.
+            parts: Partes da mensagem a buscar.
 
         Returns:
-            Tuple[bool, bytes]: (sucesso, dados da mensagem)
+            Dados da mensagem ou None se falhar.
         """
-        if not self.connection or not self.is_connected:
-            return False, b""
+        if not self.is_connected():
+            logger.error("Não há conexão IMAP ativa.")
+            return None
 
         try:
-            status, data = self.connection.fetch(message_id, parts)
-
+            status, data = self.connection.fetch(str(message_id), parts)
+            
             if status == "OK" and data:
-                # Extrai dados de forma robusta para diferentes formatos de resposta
+                # Encontra a parte que contém os dados
                 for item in data:
                     if isinstance(item, tuple) and len(item) >= 2:
-                        return True, item[1]
+                        return item[1]
                     elif isinstance(item, bytes):
-                        return True, item
+                        return item
                 
-                # Fallback: tenta acessar primeiro elemento
-                if len(data) > 0:
-                    if isinstance(data[0], tuple) and len(data[0]) >= 2:
-                        return True, data[0][1]
-                    elif isinstance(data[0], bytes):
-                        return True, data[0]
-                
-                return True, b""
-            else:
-                return False, b""
+                # Se data[0] for tuple
+                if data and isinstance(data[0], tuple) and len(data[0]) >= 2:
+                    return data[0][1]
+                    
+            logger.warning(f"Fetch retornou status: {status}")
+            return None
 
         except Exception as e:
-            print(f"[DEBUG] Erro no fetch da mensagem {message_id}: {e}")
-            return False, b""
+            logger.error(f"Erro ao buscar mensagem {message_id}: {e}")
+            return None
 
-    def delete(self, message_id: str) -> tuple[bool, str]:
+    def fetch_full(self, message_id: int) -> Optional[bytes]:
         """
-        Marca uma mensagem para exclusão.
+        Busca a mensagem completa (headers + corpo).
 
         Args:
-            message_id: ID da mensagem
+            message_id: ID da mensagem.
 
         Returns:
-            Tuple[bool, str]: (sucesso, mensagem)
+            Dados completos da mensagem ou None.
         """
-        if not self.connection or not self.is_connected:
-            return False, "Não conectado ao servidor"
+        return self.fetch(message_id, "RFC822")
 
-        try:
-            self.connection.store(message_id, "+FLAGS", "\\Deleted")
-            return True, f"Mensagem {message_id} marcada para exclusão"
-        except Exception as e:
-            return False, f"Erro ao marcar exclusão: {e}"
-
-    def expunge(self) -> tuple[bool, int]:
-        """
-        Remove permanentemente as mensagens marcadas para exclusão.
-
-        Returns:
-            Tuple[bool, int]: (sucesso, número de mensagens removidas)
-        """
-        if not self.connection or not self.is_connected:
-            return False, 0
-
-        try:
-            status, data = self.connection.expunge()
-            if status == "OK":
-                return True, len(data) if data else 0
-            return False, 0
-        except Exception:
-            return False, 0
-
-    def mark_read(self, message_ids: list[str]) -> tuple[bool, str]:
+    def mark_as_read(self, message_ids: list[int]) -> bool:
         """
         Marca mensagens como lidas.
 
         Args:
-            message_ids: Lista de IDs das mensagens
+            message_ids: Lista de IDs das mensagens.
 
         Returns:
-            Tuple[bool, str]: (sucesso, mensagem)
+            True se todas foram marcadas com sucesso.
         """
-        if not self.connection or not self.is_connected:
-            return False, "Não conectado ao servidor"
+        if not self.is_connected() or not message_ids:
+            return False
 
         try:
-            for msg_id in message_ids:
-                self.connection.store(msg_id, "-FLAGS", "\\Seen")
-            return True, f"{len(message_ids)} mensagens marcadas como lidas"
+            ids_str = ",".join(str(i) for i in message_ids)
+            status, _ = self.connection.store(ids_str, "-FLAGS", "\\Seen")
+            success = status == "OK"
+            if success:
+                logger.info(f"{len(message_ids)} mensagens marcadas como lidas")
+            return success
         except Exception as e:
-            return False, f"Erro ao marcar como lidas: {e}"
+            logger.error(f"Erro ao marcar como lidas: {e}")
+            return False
 
-    def mark_unread(self, message_ids: list[str]) -> tuple[bool, str]:
+    def mark_as_unread(self, message_ids: list[int]) -> bool:
         """
         Marca mensagens como não lidas.
 
         Args:
-            message_ids: Lista de IDs das mensagens
+            message_ids: Lista de IDs das mensagens.
 
         Returns:
-            Tuple[bool, str]: (sucesso, mensagem)
+            True se todas foram marcadas com sucesso.
         """
-        if not self.connection or not self.is_connected:
-            return False, "Não conectado ao servidor"
+        if not self.is_connected() or not message_ids:
+            return False
 
         try:
-            for msg_id in message_ids:
-                self.connection.store(msg_id, "+FLAGS", "\\Seen")
-            return True, f"{len(message_ids)} mensagens marcadas como não lidas"
+            ids_str = ",".join(str(i) for i in message_ids)
+            status, _ = self.connection.store(ids_str, "+FLAGS", "\\Seen")
+            success = status == "OK"
+            if success:
+                logger.info(f"{len(message_ids)} mensagens marcadas como não lidas")
+            return success
         except Exception as e:
-            return False, f"Erro ao marcar como não lidas: {e}"
+            logger.error(f"Erro ao marcar como não lidas: {e}")
+            return False
 
-    def move_message(self, message_id: str, destination_folder: str) -> tuple[bool, str]:
+    def delete(self, message_ids: list[int]) -> bool:
         """
-        Move uma mensagem para outra pasta.
+        Marca mensagens para exclusão.
 
         Args:
-            message_id: ID da mensagem
-            destination_folder: Pasta de destino
+            message_ids: Lista de IDs das mensagens.
 
         Returns:
-            Tuple[bool, str]: (sucesso, mensagem)
+            True se todas foram marcadas com sucesso.
         """
-        if not self.connection or not self.is_connected:
-            return False, "Não conectado ao servidor"
+        if not self.is_connected() or not message_ids:
+            return False
 
         try:
-            # Copia para a pasta de destino
-            encoded_dest = destination_folder.encode("utf-7").decode("utf-7")
-            status, data = self.connection.copy(message_id, encoded_dest)
-
-            if status == "OK":
-                # Marca para exclusão na pasta atual
-                self.connection.store(message_id, "+FLAGS", "\\Deleted")
-                self.connection.expunge()
-                return True, f"Mensagem movida para {destination_folder}"
-            else:
-                return False, f"Falha ao copiar mensagem para {destination_folder}"
-
+            ids_str = ",".join(str(i) for i in message_ids)
+            status, _ = self.connection.store(ids_str, "+FLAGS", "\\Deleted")
+            success = status == "OK"
+            if success:
+                logger.info(f"{len(message_ids)} mensagens marcadas para exclusão")
+            return success
         except Exception as e:
-            return False, f"Erro ao mover mensagem: {e}"
+            logger.error(f"Erro ao marcar para exclusão: {e}")
+            return False
 
-    def get_connection(self) -> Optional[imaplib.IMAP4_SSL]:
-        """Retorna a conexão IMAP atual."""
-        return self.connection
+    def expunge(self) -> bool:
+        """
+        Remove permanentemente as mensagens marcadas para exclusão.
+
+        Returns:
+            True se executado com sucesso.
+        """
+        if not self.is_connected():
+            return False
+
+        try:
+            status, _ = self.connection.expunge()
+            success = status == "OK"
+            if success:
+                logger.info("Mensagens excluídas permanentemente")
+            return success
+        except Exception as e:
+            logger.error(f"Erro ao expungir: {e}")
+            return False
+
+    def move_to_folder(self, message_ids: list[int], folder: str) -> bool:
+        """
+        Move mensagens para outra pasta.
+
+        Args:
+            message_ids: Lista de IDs das mensagens.
+            folder: Pasta de destino.
+
+        Returns:
+            True se movido com sucesso.
+        """
+        if not self.is_connected() or not message_ids:
+            return False
+
+        try:
+            ids_str = ",".join(str(i) for i in message_ids)
+            # Tenta usar COPY seguido de DELETE (método compatível)
+            status, _ = self.connection.copy(ids_str, folder)
+            if status == "OK":
+                # Marca as originais para exclusão
+                self.delete(message_ids)
+                self.expunge()
+                logger.info(f"{len(message_ids)} mensagens movidas para {folder}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Erro ao mover mensagens: {e}")
+            return False

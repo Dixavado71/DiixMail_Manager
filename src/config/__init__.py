@@ -1,5 +1,5 @@
-"""Configuração e settings do aplicativo."""
+"""Configurações do Gmail Manager."""
 
-from .settings import Settings
+from .settings import Settings, load_settings, get_settings
 
-__all__ = ["Settings"]
+__all__ = ["Settings", "load_settings", "get_settings"]

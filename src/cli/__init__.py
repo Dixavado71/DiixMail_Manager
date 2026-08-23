@@ -1,5 +1,5 @@
-"""Módulo CLI para interface do usuário."""
+"""Interface CLI do Gmail Manager."""
 
-from .menu import Menu
+from .menu import GmailCLI
 
-__all__ = ["Menu"]
+__all__ = ["GmailCLI"]

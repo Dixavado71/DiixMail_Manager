@@ -1,288 +1,241 @@
-# Gmail Manager TUI - Interface Premium com Textual
+# Gmail Manager CLI
 
-Gerenciador de e-mail Gmail com interface **TUI (Text User Interface)** moderna usando o framework **Textual**. Uma aplicação premium, completa e elegante para gerenciar sua conta Gmail, com foco em facilitar a localização, leitura, organização e **download de arquivos/anexos** recebidos por e-mail.
-
-## 🚀 Novidade: Interface TUI Premium!
-
-Agora com interface moderna estilo "app nativo" no terminal:
-- ✨ Widgets reais: botões, inputs, scrollbars, abas
-- 🎨 Estilo com CSS no terminal
-- 🖱️ Suporte completo a mouse
-- 📐 Layouts dinâmicos e responsivos
-- ⚡ Concorrência nativa com workers assíncronos
-- 🌓 Temas dark/light mode
-- 🔍 Preview de e-mails em tempo real
-
-## ⚠️ Importante
-
-Este projeto usa **autenticação por Senha de App do Google** via IMAP. Não use OAuth 2.0, Gmail API, Selenium ou navegador.
+Gerenciador de e-mail Gmail via IMAP com interface CLI moderna e intuitiva.
 
 ## Requisitos
 
-- Python 3.11 ou superior
-- Conta Gmail com acesso IMAP habilitado
-- Senha de App do Google (não é a senha normal da conta)
-- Terminal moderno com suporte a Unicode
+- Python 3.11+
+- Conta Gmail com IMAP habilitado
+- Senha de App do Google (não use senha normal)
 
 ## Instalação
 
-1. Clone o repositório ou copie os arquivos para seu projeto:
-
 ```bash
+# Clone ou copie o projeto
 cd gmail-manager
-```
 
-2. Instale as dependências:
-
-```bash
+# Instale as dependências
 pip install -r requirements.txt
 ```
 
-3. Crie o arquivo `.env` baseado no exemplo:
+## Configuração
+
+### 1. Criar arquivo `.env`
+
+Copie o exemplo e edite com suas credenciais:
 
 ```bash
 cp .env.example .env
 ```
 
-4. Edite o arquivo `.env` com suas credenciais:
+Edite `.env`:
 
 ```env
 GMAIL_EMAIL=seuemail@gmail.com
-GMAIL_APP_PASSWORD=sua_senha_de_app_gerada_pelo_google
+GMAIL_APP_PASSWORD=sua_senha_de_app_16_caracteres
 DOWNLOAD_DIR=downloads
 ```
 
-## Como Obter a Senha de App do Google
+### 2. Obter Senha de App do Google
 
-1. Acesse sua Conta Google: https://myaccount.google.com/
-2. Vá para **Segurança** no menu lateral
-3. Em "Como fazer login no Google", ative a **Verificação em duas etapas** (se ainda não estiver ativa)
-4. Após ativar, volte para **Segurança** e procure por **Senhas de app**
-5. Ou acesse diretamente: https://myaccount.google.com/apppasswords
-6. Selecione:
-   - **App**: Mail
-   - **Dispositivo**: Other (ou selecione seu dispositivo)
-7. Clique em **Generate**
-8. Copie a senha de 16 caracteres gerada
-9. Cole no arquivo `.env` como `GMAIL_APP_PASSWORD`
+1. Acesse https://myaccount.google.com/apppasswords
+2. Faça login na sua conta Google
+3. Em "Selecionar app", escolha "Mail"
+4. Em "Selecionar dispositivo", escolha seu dispositivo
+5. Clique em "Gerar"
+6. Copie a senha de 16 caracteres (ex: `abcd efgh ijkl mnop`)
+7. Cole no arquivo `.env` como `GMAIL_APP_PASSWORD`
 
-**Importante:**
-- Nunca compartilhe sua Senha de App
-- Use apenas no arquivo `.env` (que está no `.gitignore`)
-- Se suspeitar de comprometimento, revoke a senha e gere uma nova
+**Importante:** Use a senha sem espaços ou com espaços, ambos funcionam.
+
+### 3. Habilitar IMAP no Gmail
+
+1. Acesse https://mail.google.com
+2. Clique em ⚙️ Configurações → Ver todas as configurações
+3. Vá na aba "Encaminhamento e POP/IMAP"
+4. Em "Acesso IMAP", selecione "Ativar IMAP"
+5. Clique em "Salvar alterações"
 
 ## Como Executar
-
-### Interface TUI Premium (Recomendado)
 
 ```bash
 python app.py
 ```
 
-Você verá uma interface moderna com:
-- Header com relógio e título
-- Sidebar com navegação rápida
-- Tabela de e-mails interativa
-- Preview em tempo real
-- Footer com atalhos
-- Suporte completo a mouse
+## Funcionalidades
 
-### Interface CLI Clássica
+### Menu Principal
 
-```bash
-python app.py --cli
+```
+╔════════════════════════════════════════════╗
+║              GMAIL MANAGER                 ║
+╠════════════════════════════════════════════╣
+║ Conta: usuario@gmail.com                   ║
+║ Status: ● Conectado                        ║
+╚════════════════════════════════════════════╝
+
+1. Caixa de entrada      📥
+2. Pastas / Marcadores   📁
+3. Pesquisar e-mails     🔍
+4. Abrir e-mail          📖
+5. Selecionar e-mails    ✓
+6. Baixar anexos         ⬇️
+7. Gerenciar e-mails     ⚙️
+8. Atualizar             🔄
+0. Sair                  🚪
 ```
 
-Para manter a experiência tradicional baseada em menus.
+### 1. Caixa de Entrada
 
-### Ajuda
+Lista os últimos 50 e-mails com:
+- ID, Data, Remetente, Assunto
+- Status (NOVO/LIDO)
+- Contagem de anexos
 
-```bash
-python app.py --help
-```
+### 2. Pastas / Marcadores
+
+Lista todas as pastas disponíveis:
+- INBOX
+- Sent
+- Drafts
+- Spam
+- Trash
+- All Mail
+- Starred
+- E pastas personalizadas
+
+Permite mudar de pasta para visualização.
+
+### 3. Pesquisar E-mails
+
+Formatos de busca suportados:
+- `from:email@exemplo.com` - Por remetente
+- `subject:assunto` - Por assunto
+- `is:unread` - Não lidos
+- `is:starred` - Marcados com estrela
+- `termo livre` - Busca no assunto
+
+### 4. Abrir E-mail
+
+Visualiza e-mail completo:
+- Cabeçalho (De, Para, Data, Assunto)
+- Corpo do texto ou HTML
+- Lista de anexos
+- Opção para baixar anexos
+- Marcar como lido/não lido
+
+### 5. Selecionar E-mails
+
+Seleção múltipla por IDs:
+- Digite IDs separados por vírgula: `1,3,5`
+- Ou `all` para selecionar todos (limite 100)
+
+### 6. Baixar Anexos
+
+Baixa anexos dos e-mails selecionados:
+- Organização automática por remetente
+- Nomes únicos para evitar sobrescrita
+- Progresso em tempo real
+
+### 7. Gerenciar E-mails
+
+Ações disponíveis:
+- Marcar como lido
+- Marcar como não lido
+- Excluir permanentemente (com confirmação)
+- Mover para outra pasta
+- Limpar seleção
+
+### 8. Atualizar
+
+Recarrega dados da caixa de entrada.
 
 ## Estrutura do Projeto
 
 ```
 gmail-manager/
+├── app.py                 # Ponto de entrada
+├── .env                   # Credenciais (não commitar)
+├── .env.example           # Exemplo de .env
+├── .gitignore
+├── requirements.txt
+├── README.md
+├── downloads/             # Anexos baixados
 │
-├── app.py                 # Ponto de entrada da aplicação
-├── .env                   # Credenciais (NÃO commitar!)
-├── .env.example           # Exemplo de configuração
-├── .gitignore             # Arquivos ignorados pelo Git
-├── requirements.txt       # Dependências Python
-├── README.md              # Este arquivo
-│
-├── src/
-│   ├── __init__.py
-│   │
-│   ├── config/
-│   │   ├── __init__.py
-│   │   └── settings.py    # Carregamento de configurações
-│   │
-│   ├── imap/
-│   │   ├── __init__.py
-│   │   ├── client.py      # Cliente IMAP
-│   │   ├── folders.py     # Gerenciamento de pastas
-│   │   ├── messages.py    # Gerenciamento de mensagens
-│   │   └── search.py      # Motor de busca
-│   │
-│   ├── email/
-│   │   ├── __init__.py
-│   │   └── parser.py      # Parser de e-mails
-│   │
-│   ├── attachments/
-│   │   ├── __init__.py
-│   │   └── downloader.py  # Download de anexos
-│   │
-│   ├── cli/
-│   │   ├── __init__.py
-│   │   └── menu.py        # Interface CLI clássica
-│   │
-│   └── tui/
-│       ├── __init__.py
-│       └── app.py         # Interface TUI Premium (Textual)
-│
-└── downloads/             # Pasta para anexos baixados
+└── src/
+    ├── __init__.py
+    ├── config/
+    │   ├── __init__.py
+    │   └── settings.py    # Carregamento de configurações
+    ├── imap/
+    │   ├── __init__.py
+    │   ├── client.py      # Cliente IMAP
+    │   ├── folders.py     # Gerenciamento de pastas
+    │   ├── messages.py    # Gerenciamento de mensagens
+    │   └── search.py      # Motor de busca
+    ├── email_parser/
+    │   ├── __init__.py
+    │   └── parser.py      # Parser de e-mails
+    ├── attachments/
+    │   ├── __init__.py
+    │   └── downloader.py  # Download de anexos
+    └── cli/
+        ├── __init__.py
+        └── menu.py        # Interface CLI
 ```
-
-## Funcionalidades da Interface TUI
-
-### 1. Dashboard Principal
-- Status de conexão em tempo real
-- Contador de e-mails e selecionados
-- Navegação rápida por sidebar
-- Preview de e-mail selecionado
-
-### 2. Tabela de E-mails Interativa
-- Ordenação por colunas
-- Seleção múltipla com clique
-- Ícones de status (novo/lido/anexos)
-- Hover effects e cursor personalizado
-
-### 3. Atalhos de Teclado
-- `[q]` - Sair
-- `[r]` - Atualizar e-mails
-- `[1-3]` - Navegar entre tabs
-- `[t]` - Toggle preview
-- `[d]` - Excluir selecionados
-- `[s]` - Pesquisar
-- `[?]` - Ajuda
-
-### 4. Recursos Avançados
-- Downloads em background
-- Modais de confirmação
-- Notificações toast
-- Log de atividades
-- Estatísticas detalhadas
-
-## Funcionalidades da Interface CLI
-
-### 1. Caixa de Entrada
-- Lista e-mails com ID, data, remetente, assunto, status e anexos
-- Mostra apenas metadados inicialmente (carregamento rápido)
-- Exibe até 50 e-mails mais recentes
-
-### 2. Pastas / Marcadores
-- Lista todas as pastas disponíveis no Gmail
-- Permite navegar entre pastas (Inbox, Sent, Drafts, etc.)
-- Traduz nomes de pastas para português
-
-### 3. Pesquisa de E-mails
-Suporta vários formatos de busca:
-
-```
-from:email@exemplo.com     # Buscar por remetente
-subject:nota fiscal        # Buscar por assunto
-to:destinatario@email.com  # Buscar por destinatário
-since:2024-01-01          # Desde uma data
-last:30                   # Últimos 30 dias
-has:attachment            # Com anexos
-is:unread                 # Não lidos
-texto livre               # Busca em tudo
-```
-
-### 4. Download de Anexos
-- Baixa anexos de e-mail individual
-- Baixa anexos de múltiplos e-mails selecionados
-- Opções de organização:
-  - Por remetente
-  - Por assunto
-  - Por data (ano/mês)
-  - Sem organização (todos na pasta downloads/)
-- Evita sobrescrever arquivos existentes
-
-## Tecnologias Utilizadas
-
-### Interface TUI
-- **Textual** - Framework TUI moderno (mesmo criador do Rich)
-- **Rich** - Renderização rica no terminal
-
-### Interface CLI
-- **Rich** - Painéis, tabelas e formatação
-- **python-dotenv** - Carregamento de variáveis de ambiente
-
-### Backend
-- **imaplib** (stdlib) - Cliente IMAP
-- **email** (stdlib) - Parser de e-mails
-- **pathlib** (stdlib) - Manipulação de paths
 
 ## Limitações do IMAP/Gmail
 
-1. **Acesso IMAP deve estar habilitado** nas configurações do Gmail
-2. **Senha de App obrigatória** - não funciona com senha normal
-3. **Pasta [Gmail]/All Mail** contém todos os e-mails (incluindo arquivados)
-4. **Exclusão** move para Lixeira primeiro (pode ser necessário esvaziar a lixeira)
-5. **Rate limiting** - Google pode limitar conexões muito frequentes
-6. **Busca por anexos** usa `has:attachment` (específico do Gmail)
+1. **Busca por conteúdo**: O IMAP não permite busca full-text eficiente. A busca é feita apenas no assunto.
+
+2. **Mensagens grandes**: E-mails muito grandes podem demorar para carregar.
+
+3. **Rate limiting**: O Gmail pode limitar conexões frequentes.
+
+4. **Anexos grandes**: Downloads de arquivos >25MB podem falhar.
+
+5. **Pasta [Gmail]/All Mail**: Contém todos os e-mails, incluindo cópias de outras pastas.
+
+## Segurança
+
+✅ **Nunca:**
+- Salvar senhas no código
+- Imprimir senhas no terminal
+- Commitar `.env` no Git
+- Executar conteúdo HTML recebido
+- Executar anexos automaticamente
+- Sobrescrever arquivos sem aviso
+
+✅ **Sempre:**
+- Usar Senha de App (não senha normal)
+- Manter `.env` fora do versionamento
+- Confirmar ações destrutivas
+- Validar nomes de arquivo
 
 ## Troubleshooting
 
-### Erro: "Falha na autenticação"
-- Verifique se está usando Senha de App (não a senha normal)
-- Confirme que o acesso IMAP está habilitado no Gmail
-- Verifique se a Verificação em Duas Etapas está ativa
+### Erro de autenticação
 
-### Erro: "Acesso bloqueado"
-- Acesse https://accounts.google.com/DisplayUnlockCaptcha
-- Tente permitir acesso de apps menos seguros (não recomendado)
-- Use apenas Senha de App
+- Verifique se está usando Senha de App, não senha normal
+- Confirme que o IMAP está habilitado no Gmail
+- Verifique se há espaços extras no `.env`
 
-### Erro: "Connection timeout"
+### Nenhuma mensagem encontrada
+
+- Verifique se há e-mails na caixa de entrada
+- Tente a opção "Atualizar"
+- Verifique o log `gmail_manager.log`
+
+### Conexão perdida
+
+- O sistema tenta reconectar automaticamente
 - Verifique sua conexão com a internet
-- Firewall pode estar bloqueando a porta 993 (IMAP SSL)
-
-### Nenhum e-mail aparece
-- Verifique se há e-mails na conta
-- Tente usar a busca `ALL` ou `last:365`
-- Algumas pastas podem estar vazias
-
-### Problemas com TUI
-- Use terminais modernos (iTerm2, Windows Terminal, Kitty, Alacritty)
-- Redimensione a janela se houver problemas de layout
-- Use `--cli` como fallback
-
-## Dependências
-
-O projeto usa bibliotecas modernas e essenciais:
-
-- `textual>=0.47.0` - Framework TUI completo
-- `rich>=13.0.0` - Renderização rica no terminal
-- `python-dotenv>=1.0.0` - Carregamento de variáveis de ambiente
-
-A biblioteca padrão Python é usada sempre que possível (`imaplib`, `email`, `pathlib`).
+- O Gmail pode ter limitado temporariamente
 
 ## Licença
 
-Este projeto é fornecido "como está" para fins educacionais e de uso pessoal.
+MIT License
 
-## Aviso de Segurança
+## Autor
 
-- **Nunca** commit o arquivo `.env` no Git
-- **Nunca** compartilhe suas credenciais
-- **Sempre** use Senha de App em vez da senha principal
-- **Revogue** senhas de app quando não forem mais necessárias
-
----
-
-**Gmail Manager TUI** - A evolução do gerenciamento de e-mails via terminal com interface premium.
+Gmail Manager CLI Team

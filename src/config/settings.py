@@ -1,4 +1,4 @@
-"""Configurações do aplicativo carregadas do .env."""
+"""Configurações da aplicação carregadas do arquivo .env."""
 
 import os
 from pathlib import Path
@@ -6,52 +6,98 @@ from dotenv import load_dotenv
 
 
 class Settings:
-    """Classe para gerenciar configurações do aplicativo."""
+    """Configurações da aplicação."""
 
     def __init__(self):
-        """Inicializa as configurações carregando o arquivo .env."""
-        # Carrega o arquivo .env do diretório raiz do projeto
-        env_path = Path(__file__).parent.parent.parent / ".env"
-        load_dotenv(env_path)
+        """Inicializa as configurações."""
+        self.gmail_email: str = ""
+        self.gmail_app_password: str = ""
+        self.download_dir: Path = Path("downloads")
+        self.imap_server: str = "imap.gmail.com"
+        self.imap_port: int = 993
+        self._loaded: bool = False
 
-        self.gmail_email = os.getenv("GMAIL_EMAIL", "")
-        self.gmail_app_password = os.getenv("GMAIL_APP_PASSWORD", "")
-        self.download_dir = os.getenv("DOWNLOAD_DIR", "downloads")
-
-        # Configurações IMAP do Gmail
-        self.imap_server = "imap.gmail.com"
-        self.imap_port = 993
-
-    def validate(self) -> tuple[bool, str]:
+    def load(self, env_path: Path | None = None) -> bool:
         """
-        Valida se as configurações necessárias estão presentes.
+        Carrega as configurações do arquivo .env.
+
+        Args:
+            env_path: Caminho para o arquivo .env. Se None, usa o padrão.
 
         Returns:
-            Tuple[bool, str]: (é válido, mensagem de erro ou sucesso)
+            True se carregado com sucesso, False caso contrário.
+        """
+        if self._loaded:
+            return True
+
+        if env_path is None:
+            env_path = Path(".") / ".env"
+
+        if env_path.exists():
+            load_dotenv(env_path)
+        else:
+            load_dotenv()
+
+        self.gmail_email = os.getenv("GMAIL_EMAIL", "").strip()
+        self.gmail_app_password = os.getenv("GMAIL_APP_PASSWORD", "").strip()
+        
+        download_dir_str = os.getenv("DOWNLOAD_DIR", "downloads").strip()
+        self.download_dir = Path(download_dir_str)
+
+        self._loaded = True
+        return self.validate()
+
+    def validate(self) -> bool:
+        """
+        Valida as configurações carregadas.
+
+        Returns:
+            True se todas as configurações forem válidas.
         """
         if not self.gmail_email:
-            return False, "GMAIL_EMAIL não configurado no arquivo .env"
-
+            return False
         if not self.gmail_app_password:
-            return False, "GMAIL_APP_PASSWORD não configurado no arquivo .env"
+            return False
+        if "@" not in self.gmail_email:
+            return False
+        
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        return True
 
-        # Validação básica de formato de e-mail
-        if "@" not in self.gmail_email or "." not in self.gmail_email:
-            return False, "Formato de e-mail inválido em GMAIL_EMAIL"
+    def is_valid(self) -> bool:
+        """Verifica se as configurações são válidas."""
+        return bool(self.gmail_email and self.gmail_app_password)
 
-        if len(self.gmail_app_password) < 8:
-            return False, "Senha de app muito curta (deve ter pelo menos 16 caracteres)"
 
-        return True, "Configurações válidas"
+_settings_instance: Settings | None = None
 
-    def get_download_path(self) -> Path:
-        """
-        Obtém o caminho completo para o diretório de downloads.
 
-        Returns:
-            Path: Caminho absoluto para o diretório de downloads
-        """
-        base_path = Path(__file__).parent.parent.parent
-        download_path = base_path / self.download_dir
-        download_path.mkdir(parents=True, exist_ok=True)
-        return download_path
+def load_settings(env_path: Path | None = None) -> Settings:
+    """
+    Carrega e retorna as configurações da aplicação.
+
+    Args:
+        env_path: Caminho opcional para o arquivo .env.
+
+    Returns:
+        Instância de Settings configurada.
+    """
+    global _settings_instance
+    _settings_instance = Settings()
+    _settings_instance.load(env_path)
+    return _settings_instance
+
+
+def get_settings() -> Settings:
+    """
+    Retorna a instância de configurações.
+
+    Returns:
+        Instância de Settings.
+
+    Raises:
+        RuntimeError: Se as configurações não foram carregadas.
+    """
+    if _settings_instance is None:
+        raise RuntimeError("Configurações não carregadas. Chame load_settings() primeiro.")
+    return _settings_instance
