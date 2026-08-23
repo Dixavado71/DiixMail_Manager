@@ -129,15 +129,40 @@ class IMAPClient:
             return False, []
 
         try:
+            # Tenta primeiro com o critério original
             status, data = self.connection.search(None, criteria)
 
             if status == "OK":
                 message_ids = data[0].split()
-                return True, [msg_id.decode() for msg_id in message_ids]
-            else:
-                return False, []
+                if message_ids:
+                    return True, [msg_id.decode() for msg_id in message_ids]
+                
+                # Se não encontrou, tenta com critério alternativo para Gmail
+                # Gmail as vezes requer "1:*" para buscar todas as mensagens
+                status2, data2 = self.connection.search(None, "1:*")
+                if status2 == "OK" and data2[0]:
+                    message_ids = data2[0].split()
+                    return True, [msg_id.decode() for msg_id in message_ids]
+                
+                # Tenta buscar mensagens não lidas como fallback
+                status3, data3 = self.connection.search(None, "UNSEEN")
+                if status3 == "OK" and data3[0]:
+                    message_ids = data3[0].split()
+                    return True, [msg_id.decode() for msg_id in message_ids]
+                    
+                return True, []  # Retorna lista vazia mas com sucesso
+            
+            return False, []
 
-        except Exception:
+        except Exception as e:
+            # Em caso de erro, tenta abordagem alternativa
+            try:
+                status, data = self.connection.uid('SEARCH', 'CHARSET', 'UTF-8', 'ALL')
+                if status == "OK" and data[0]:
+                    message_ids = data[0].split()
+                    return True, [msg_id.decode() for msg_id in message_ids]
+            except Exception:
+                pass
             return False, []
 
     def fetch(self, message_id: str, parts: str = "(RFC822.HEADER RFC822.TEXT)") -> tuple[bool, bytes]:
