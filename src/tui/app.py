@@ -722,41 +722,63 @@ class MainScreen(Screen):
                         emails_data.append(headers)
                 
                 self.emails = emails_data
-                self.app.call_from_thread(self._populate_email_table)
-                self.app.call_from_thread(self._update_counts)
+                # Usa call_after_refresh para atualizar a UI na thread principal
+                self.call_after_refresh(self._populate_email_table)
+                self.call_after_refresh(self._update_counts)
                 
         except Exception as e:
             log_widget = self.query_one("#log-widget", RichLog)
             log_widget.write(f"[red]Erro ao carregar e-mails: {e}[/red]")
+            # Tenta atualizar a UI mesmo em caso de erro
+            self.call_after_refresh(self._update_counts)
 
     def _populate_email_table(self) -> None:
         """Popula a tabela com e-mails."""
-        table = self.query_one("#email-table", DataTable)
-        table.clear()
-        
-        for email in self.emails:
-            msg_id = email.get('id', '')
-            is_read = email.get('is_read', True)
-            attachment_count = email.get('attachment_count', 0)
+        try:
+            table = self.query_one("#email-table", DataTable)
+            table.clear()
             
-            status_icon = "📬" if is_read else "🆕"
-            attachment_icon = f"📎{attachment_count}" if attachment_count > 0 else ""
+            if not self.emails:
+                # Adiciona uma linha informativa quando não há e-mails
+                table.add_row("", "", "📭", "Nenhum e-mail", "", "", "", key="empty")
+                return
             
-            table.add_row(
-                "✓" if msg_id in self.selected_emails else "",
-                msg_id,
-                status_icon,
-                email.get('from_name', '')[:30],
-                email.get('subject', '')[:40],
-                email.get('date_str', '')[:10],
-                attachment_icon,
-                key=msg_id,
-            )
+            for email in self.emails:
+                msg_id = email.get('id', '')
+                is_read = email.get('is_read', True)
+                attachment_count = email.get('attachment_count', 0)
+                
+                status_icon = "🆕" if not is_read else "📬"
+                attachment_icon = f"📎{attachment_count}" if attachment_count > 0 else ""
+                
+                table.add_row(
+                    "✓" if msg_id in self.selected_emails else "",
+                    msg_id,
+                    status_icon,
+                    email.get('from_name', '')[:30] or email.get('from', '')[:30],
+                    email.get('subject', '')[:40] or "(Sem assunto)",
+                    email.get('date_str', '')[:10],
+                    attachment_icon,
+                    key=msg_id,
+                )
+        except Exception as e:
+            # Log do erro mas não quebra a aplicação
+            try:
+                log_widget = self.query_one("#log-widget", RichLog)
+                log_widget.write(f"[red]Erro ao popular tabela: {e}[/red]")
+            except Exception:
+                pass
 
     def _update_counts(self) -> None:
         """Atualiza contadores na UI."""
-        self.query_one("#email-count", Static).update(str(len(self.emails)))
-        self.query_one("#selected-count", Static).update(str(len(self.selected_emails)))
+        try:
+            email_count = self.query_one("#email-count", Static)
+            selected_count = self.query_one("#selected-count", Static)
+            email_count.update(str(len(self.emails)))
+            selected_count.update(str(len(self.selected_emails)))
+        except Exception:
+            # Silenciosamente ignora erros de atualização de UI
+            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
@@ -787,6 +809,8 @@ class MainScreen(Screen):
         """Quando uma linha é selecionada, toggle seleção."""
         if event.row_key:
             email_id = event.row_key.value
+            if email_id == "empty":
+                return  # Ignora clique na linha vazia
             if email_id in self.selected_emails:
                 self.selected_emails.remove(email_id)
             else:
@@ -796,15 +820,19 @@ class MainScreen(Screen):
 
     def _show_email_preview(self, email_id: str) -> None:
         """Mostra preview do e-mail selecionado."""
-        email_data = next((e for e in self.emails if e.get('id') == email_id), None)
-        if email_data:
-            preview_content = self.query_one("#preview-content", Static)
-            preview_content.update(
-                f"[bold]De:[/bold] {email_data.get('from', 'N/A')}\n"
-                f"[bold]Assunto:[/bold] {email_data.get('subject', 'N/A')}\n"
-                f"[bold]Data:[/bold] {email_data.get('date_str', 'N/A')}\n\n"
-                f"{email_data.get('snippet', 'Sem preview disponível.')[:200]}"
-            )
+        try:
+            email_data = next((e for e in self.emails if e.get('id') == email_id), None)
+            if email_data:
+                preview_content = self.query_one("#preview-content", Static)
+                preview_content.update(
+                    f"[bold]De:[/bold] {email_data.get('from', 'N/A')}\n"
+                    f"[bold]Assunto:[/bold] {email_data.get('subject', 'N/A')}\n"
+                    f"[bold]Data:[/bold] {email_data.get('date_str', 'N/A')}\n\n"
+                    f"{email_data.get('snippet', 'Sem preview disponível.')[:200]}"
+                )
+        except Exception:
+            # Ignora erros de preview silenciosamente
+            pass
 
     def _show_download_options(self) -> None:
         """Mostra tela de opções de download."""
