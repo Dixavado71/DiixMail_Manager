@@ -206,6 +206,7 @@ class Menu:
         """Inicia modo de demonstração com dados mockados."""
         self.is_connected = True
         self.current_folder = "INBOX"
+        self._demo_mode = True  # Flag para identificar modo demo
         
         # Dados mockados para demonstração
         demo_messages = [
@@ -312,51 +313,65 @@ class Menu:
         self.console.print("\n[cyan bold]⚡ Carregando caixa de entrada...[/cyan bold]")
 
         # Verifica se está em modo de demonstração
-        if self.message_cache and len(self.message_cache) > 0:
+        if self.message_cache and len(self.message_cache) > 0 and hasattr(self, '_demo_mode'):
             # Modo de demonstração - usa dados mockados
             summaries = list(self.message_cache.values())[:50]
             self.console.print("[green]✓ Dados de demonstração carregados[/green]")
-        else:
-            # Modo real - seleciona INBOX
-            success, _, count = self.imap_client.select_folder("INBOX")
-            if not success:
-                self.console.print("[red]Falha ao acessar caixa de entrada[/red]")
+            self._display_email_table(summaries)
+            return
+
+        # Modo real - seleciona INBOX
+        success, msg_count = self.imap_client.select_folder("INBOX")
+        if not success:
+            self.console.print("[red]Falha ao acessar caixa de entrada[/red]")
+            return
+
+        self.current_folder = "INBOX"
+        self.console.print(f"[dim]Pasta INBOX selecionada ({msg_count} mensagens no total)[/dim]")
+
+        # Busca todas as mensagens usando thread
+        future = self.executor.submit(self.search_engine.search_all)
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=self.console,
+        ) as progress:
+            task = progress.add_task("Buscando mensagens...", total=None)
+            try:
+                success, message_ids = future.result(timeout=60)
+                progress.update(task, completed=True)
+            except Exception as e:
+                self.console.print(f"[red]Erro na busca: {e}[/red]")
                 return
 
-            self.current_folder = "INBOX"
-            self.console.print(f"[dim]Pasta INBOX selecionada ({count} mensagens no total)[/dim]")
+        self.console.print(f"[dim]Busca retornou {len(message_ids) if message_ids else 0} mensagens[/dim]")
+        
+        if not success or not message_ids:
+            self.console.print("[yellow]Nenhum e-mail encontrado ou erro na busca.[/yellow]")
+            self.console.print("[dim]Dica: Verifique se há e-mails na conta Gmail ou se o acesso IMAP está habilitado.[/dim]")
+            Prompt.ask("\nPressione Enter para continuar")
+            return
 
-            # Busca todas as mensagens usando thread
-            future = self.executor.submit(self.search_engine.search_all)
-            
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                console=self.console,
-            ) as progress:
-                task = progress.add_task("Buscando mensagens...", total=None)
-                try:
-                    success, message_ids = future.result(timeout=60)
-                    progress.update(task, completed=True)
-                except Exception as e:
-                    self.console.print(f"[red]Erro na busca: {e}[/red]")
-                    return
+        self.current_messages = message_ids
+        self.console.print(f"[dim]Processando últimos 50 e-mails...[/dim]")
 
-            self.console.print(f"[dim]Busca retornou {len(message_ids) if message_ids else 0} mensagens[/dim]")
-            
-            if not success or not message_ids:
-                self.console.print("[yellow]Nenhum e-mail encontrado ou erro na busca.[/yellow]")
-                self.console.print("[dim]Dica: Verifique se há e-mails na conta Gmail ou se o acesso IMAP está habilitado.[/dim]")
-                Prompt.ask("\nPressione Enter para continuar")
-                return
-
-            self.current_messages = message_ids
-
-            # Obtém resumo das últimas 50 mensagens com cache
-            summaries = self._get_messages_summary_cached(message_ids, limit=50)
+        # Obtém resumo das últimas 50 mensagens DIRETAMENTE (sem cache para evitar problemas)
+        summaries = self.message_manager.get_messages_summary(message_ids, limit=50)
 
         if not summaries:
-            self.console.print("[yellow]Nenhum e-mail encontrado.[/yellow]")
+            self.console.print("[yellow]Nenhum e-mail pôde ser carregado.[/yellow]")
+            self.console.print("[dim]Isso pode indicar um problema de conexão ou formato dos e-mails.[/dim]")
+            Prompt.ask("\nPressione Enter para continuar")
+            return
+
+        self.console.print(f"[green]✓ {len(summaries)} e-mail(s) carregado(s) com sucesso![/green]")
+        self._display_email_table(summaries)
+
+    def _display_email_table(self, summaries: list) -> None:
+        """Exibe a tabela de e-mails formatada."""
+        if not summaries:
+            self.console.print("[yellow]Nenhum e-mail para exibir.[/yellow]")
             Prompt.ask("\nPressione Enter para continuar")
             return
 
