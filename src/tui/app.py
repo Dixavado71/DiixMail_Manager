@@ -666,15 +666,15 @@ class MainScreen(Screen):
             
             if success:
                 self.is_connected = True
-                # Chama diretamente pois já estamos em uma thread worker
-                self.app.call_from_thread(self._update_status, True, message)
+                # Usa call_after_refresh para atualizar a UI na thread principal
+                self.call_after_refresh(self._update_status, True, message)
                 # Inicia o worker de carregamento de e-mails diretamente
                 self._load_emails()
             else:
-                self.app.call_from_thread(self._update_status, False, message)
+                self.call_after_refresh(self._update_status, False, message)
                 
         except Exception as e:
-            self.app.call_from_thread(self._update_status, False, f"Erro: {e}")
+            self.call_after_refresh(self._update_status, False, f"Erro: {e}")
 
     def _update_status(self, connected: bool, message: str) -> None:
         """Atualiza a barra de status."""
