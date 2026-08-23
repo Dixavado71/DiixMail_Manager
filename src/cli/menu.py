@@ -324,6 +324,7 @@ class Menu:
                 return
 
             self.current_folder = "INBOX"
+            self.console.print(f"[dim]Pasta INBOX selecionada ({count} mensagens no total)[/dim]")
 
             # Busca todas as mensagens usando thread
             future = self.executor.submit(self.search_engine.search_all)
@@ -341,8 +342,11 @@ class Menu:
                     self.console.print(f"[red]Erro na busca: {e}[/red]")
                     return
 
+            self.console.print(f"[dim]Busca retornou {len(message_ids) if message_ids else 0} mensagens[/dim]")
+            
             if not success or not message_ids:
-                self.console.print("[yellow]Nenhum e-mail encontrado.[/yellow]")
+                self.console.print("[yellow]Nenhum e-mail encontrado ou erro na busca.[/yellow]")
+                self.console.print("[dim]Dica: Verifique se há e-mails na conta Gmail ou se o acesso IMAP está habilitado.[/dim]")
                 Prompt.ask("\nPressione Enter para continuar")
                 return
 

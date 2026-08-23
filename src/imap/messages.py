@@ -34,13 +34,23 @@ class MessageManager:
         success, data = self.imap_client.fetch(message_id, "(RFC822.HEADER)")
 
         if not success or not data:
-            return None
+            # Tenta abordagem alternativa com UID FETCH
+            try:
+                conn = self.imap_client.get_connection()
+                if conn and self.imap_client.is_connected:
+                    status, msg_data = conn.uid('FETCH', message_id, '(RFC822.HEADER)')
+                    if status == 'OK' and msg_data:
+                        data = msg_data[0][1]
+                    else:
+                        return None
+            except Exception:
+                return None
 
         try:
             msg = message_from_bytes(data)
 
             # Extrai remetente
-            from_raw = msg.get("From", "")
+            from_raw = msg.get("From", "Desconhecido")
             from_name, from_email = parseaddr(from_raw)
 
             # Extrai destinatário
@@ -48,7 +58,7 @@ class MessageManager:
             to_name, to_email = parseaddr(to_raw)
 
             # Extrai assunto
-            subject_raw = msg.get("Subject", "")
+            subject_raw = msg.get("Subject", "Sem assunto")
             subject = str(make_header(decode_header(subject_raw)))
 
             # Extrai data
@@ -61,22 +71,22 @@ class MessageManager:
                     date_obj = parsedate_to_datetime(date_raw)
                     date_str = date_obj.strftime("%d/%m/%Y %H:%M")
                 except Exception:
-                    date_str = date_raw
+                    date_str = date_raw[:25] if len(date_raw) > 25 else date_raw
 
-            # Verifica status (lido/não lido)
+            # Verifica status (lido/não lido) - verifica flags do Gmail
             flags_raw = msg.get("X-Gmail-Labels", "")
-            is_read = "\\Seen" in str(data) or "Seen" in flags_raw
+            is_read = "\\Seen" in str(data) or "Seen" in flags_raw or "\\Seen" in flags_raw
 
             # Conta anexos
             attachment_count = self._count_attachments(msg)
 
             return {
                 "id": message_id,
-                "from_name": from_name or from_email,
-                "from_email": from_email,
+                "from_name": from_name or from_email or "Desconhecido",
+                "from_email": from_email or "unknown@example.com",
                 "to_name": to_name or to_email,
                 "to_email": to_email,
-                "subject": subject,
+                "subject": subject or "Sem assunto",
                 "date_str": date_str,
                 "date_obj": date_obj,
                 "is_read": is_read,
@@ -84,7 +94,8 @@ class MessageManager:
                 "flags": flags_raw,
             }
 
-        except Exception:
+        except Exception as e:
+            print(f"[DEBUG] Erro ao processar mensagem {message_id}: {e}")
             return None
 
     def get_full_message(self, message_id: str) -> Optional[dict]:
