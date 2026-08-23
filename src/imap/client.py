@@ -107,7 +107,24 @@ class IMAPClient:
                 status, messages = self.connection.select(encoded_folder)
 
             if status == "OK":
-                msg_count = int(messages[0].decode()) if messages else 0
+                # Gmail pode retornar diferentes formatos
+                # Extrai o número de mensagens de forma robusta
+                msg_count = 0
+                if messages:
+                    for msg in messages:
+                        if isinstance(msg, bytes):
+                            try:
+                                msg_count = int(msg.decode())
+                                break
+                            except (ValueError, UnicodeDecodeError):
+                                continue
+                        elif isinstance(msg, str):
+                            try:
+                                msg_count = int(msg)
+                                break
+                            except ValueError:
+                                continue
+                
                 return True, f"Pasta '{folder_name}' selecionada", msg_count
             else:
                 return False, f"Falha ao selecionar pasta: {folder_name}", 0
@@ -130,37 +147,63 @@ class IMAPClient:
 
         try:
             # Tenta primeiro com o critério original
-            status, data = self.connection.search(None, criteria)
+            status, *data = self.connection.search(None, criteria)
 
             if status == "OK":
-                message_ids = data[0].split()
+                # Gmail pode retornar diferentes formatos de resposta
+                # Extrai os IDs de mensagem de forma robusta
+                message_ids = []
+                
+                for item in data:
+                    if item and isinstance(item, bytes):
+                        message_ids.extend(item.split())
+                    elif item and isinstance(item, list):
+                        for sub_item in item:
+                            if isinstance(sub_item, bytes):
+                                message_ids.extend(sub_item.split())
+                
                 if message_ids:
-                    return True, [msg_id.decode() for msg_id in message_ids]
+                    return True, [msg_id.decode() if isinstance(msg_id, bytes) else msg_id for msg_id in message_ids]
                 
                 # Se não encontrou, tenta com critério alternativo para Gmail
                 # Gmail as vezes requer "1:*" para buscar todas as mensagens
-                status2, data2 = self.connection.search(None, "1:*")
-                if status2 == "OK" and data2[0]:
-                    message_ids = data2[0].split()
-                    return True, [msg_id.decode() for msg_id in message_ids]
+                status2, *data2 = self.connection.search(None, "1:*")
+                if status2 == "OK" and data2:
+                    message_ids = []
+                    for item in data2:
+                        if item and isinstance(item, bytes):
+                            message_ids.extend(item.split())
+                    
+                    if message_ids:
+                        return True, [msg_id.decode() if isinstance(msg_id, bytes) else msg_id for msg_id in message_ids]
                 
                 # Tenta buscar mensagens não lidas como fallback
-                status3, data3 = self.connection.search(None, "UNSEEN")
-                if status3 == "OK" and data3[0]:
-                    message_ids = data3[0].split()
-                    return True, [msg_id.decode() for msg_id in message_ids]
+                status3, *data3 = self.connection.search(None, "UNSEEN")
+                if status3 == "OK" and data3:
+                    message_ids = []
+                    for item in data3:
+                        if item and isinstance(item, bytes):
+                            message_ids.extend(item.split())
+                    
+                    if message_ids:
+                        return True, [msg_id.decode() if isinstance(msg_id, bytes) else msg_id for msg_id in message_ids]
                     
                 return True, []  # Retorna lista vazia mas com sucesso
             
             return False, []
 
         except Exception as e:
-            # Em caso de erro, tenta abordagem alternativa
+            # Em caso de erro, tenta abordagem alternativa com UID SEARCH
             try:
-                status, data = self.connection.uid('SEARCH', 'CHARSET', 'UTF-8', 'ALL')
-                if status == "OK" and data[0]:
-                    message_ids = data[0].split()
-                    return True, [msg_id.decode() for msg_id in message_ids]
+                status, *data = self.connection.uid('SEARCH', 'CHARSET', 'UTF-8', 'ALL')
+                if status == "OK" and data:
+                    message_ids = []
+                    for item in data:
+                        if item and isinstance(item, bytes):
+                            message_ids.extend(item.split())
+                    
+                    if message_ids:
+                        return True, [msg_id.decode() if isinstance(msg_id, bytes) else msg_id for msg_id in message_ids]
             except Exception:
                 pass
             return False, []
