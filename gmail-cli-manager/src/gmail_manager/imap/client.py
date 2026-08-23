@@ -241,7 +241,7 @@ class GmailIMAPClient(IMAPClientProtocol):
             flags = tuple(flags_match.group(1).split()) if flags_match else ()
 
             # Extract date
-            date_match = re.search(r"INTERNALDATE "(\d+-\w+-\d+ \d+:\d+:\d+ [+-]\d+)"", response_str)
+            date_match = re.search(r'INTERNALDATE "(\d+-\w+-\d+ \d+:\d+:\d+ [+-]\d+)"', response_str)
             date_str = date_match.group(1) if date_match else ""
 
             # Get headers

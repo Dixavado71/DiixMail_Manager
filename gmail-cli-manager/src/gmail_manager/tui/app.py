@@ -6,7 +6,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListView, ListItem, Static
 
-from .config import Settings
+from gmail_manager.config import Settings
 
 
 class DashboardScreen(Screen):

@@ -1,13 +1,14 @@
 """Main entry point for Gmail Manager CLI/TUI."""
 
 import sys
+from typing import Optional
 
 import typer
 from rich.console import Console
 
-from .config import get_settings
-from .tui.app import GmailManagerApp
-from .utils.logging import print_error, print_success
+from gmail_manager.config import get_settings
+from gmail_manager.tui.app import GmailManagerApp
+from gmail_manager.utils.logging import print_error, print_success
 
 console = Console()
 
@@ -18,9 +19,9 @@ app = typer.Typer(
 )
 
 
-@app.command(invoke_without_command=True)
+@app.callback(invoke_without_command=True)
 def main(
-    ctx: typer.Context = typer.Context(None),
+    ctx: typer.Context,
     version: bool = typer.Option(False, "--version", "-v", help="Show version"),
 ) -> None:
     """
@@ -28,7 +29,7 @@ def main(
 
     Opens the TUI dashboard by default.
     """
-    from . import __version__
+    from gmail_manager import __version__
 
     if version:
         console.print(f"[bold blue]Gmail Manager[/bold blue] v{__version__}")

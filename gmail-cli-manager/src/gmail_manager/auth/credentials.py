@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import TypedDict
 
-from .config import Settings
-from .exceptions import ConfigurationError
+from gmail_manager.config import Settings
+from gmail_manager.exceptions import ConfigurationError
 
 
 class CredentialsData(TypedDict, total=False):

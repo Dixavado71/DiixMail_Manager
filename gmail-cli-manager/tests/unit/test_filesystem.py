@@ -18,7 +18,7 @@ def test_sanitize_filename_basic() -> None:
 def test_sanitize_filename_invalid_chars() -> None:
     """Test removal of invalid characters."""
     assert sanitize_filename("file<name>.txt") == "file_name_.txt"
-    assert sanitize_filename('file"name.txt') == "filename.txt"
+    assert sanitize_filename('file"name.txt') == "file_name.txt"
     assert sanitize_filename("file/name.txt") == "file_name.txt"
 
 
