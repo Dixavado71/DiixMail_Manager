@@ -1,1 +1,8 @@
-(src/tui/app.py)
+```
+# Compiled Python files
+*.pyc
+__pycache__/
+
+# Environment files
+.env
+```
