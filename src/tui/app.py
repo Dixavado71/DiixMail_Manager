@@ -666,8 +666,10 @@ class MainScreen(Screen):
             
             if success:
                 self.is_connected = True
+                # Chama diretamente pois já estamos em uma thread worker
                 self.app.call_from_thread(self._update_status, True, message)
-                self.app.call_from_thread(self._load_emails)
+                # Inicia o worker de carregamento de e-mails diretamente
+                self._load_emails()
             else:
                 self.app.call_from_thread(self._update_status, False, message)
                 
