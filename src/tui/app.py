@@ -665,6 +665,30 @@ class MainScreen(Screen):
     async def _connect_to_server(self) -> None:
         """Conecta ao servidor IMAP em background."""
         try:
+            # Verifica se as credenciais são de teste
+            is_test_credentials = (
+                self.settings.gmail_email == "teste@gmail.com" and 
+                self.settings.gmail_app_password == "testpassword123"
+            )
+            
+            if is_test_credentials:
+                # Modo de demonstração com dados mockados
+                self.call_after_refresh(
+                    self._log_message,
+                    "[yellow]⚠️ Credenciais de teste detectadas. Usando modo de demonstração.[/yellow]"
+                )
+                self.call_after_refresh(
+                    self._log_message,
+                    "[blue]Para usar com Gmail real, atualize o arquivo .env com suas credenciais.[/blue]"
+                )
+                # Simula conexão bem-sucedida
+                self.is_connected = True
+                self.call_after_refresh(self._update_status, True, "Modo demonstração (dados mockados)")
+                await asyncio.sleep(0.5)
+                self._load_mock_emails()
+                return
+            
+            # Conexão real com Gmail
             success, message = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self.imap_client.connect(
@@ -675,8 +699,11 @@ class MainScreen(Screen):
             
             if success:
                 self.is_connected = True
+                # A conexão já define imap_client.is_connected = True no cliente
                 # Usa call_after_refresh para atualizar a UI na thread principal
                 self.call_after_refresh(self._update_status, True, message)
+                # Aguarda um breve momento para garantir que a conexão está estável
+                await asyncio.sleep(0.5)
                 # Inicia o worker de carregamento de e-mails diretamente
                 self._load_emails()
             else:
@@ -715,30 +742,56 @@ class MainScreen(Screen):
     async def _load_emails(self) -> None:
         """Carrega e-mails em background."""
         try:
+            # Verifica se está conectado
+            if not self.is_connected or not self.imap_client.is_connected:
+                self.call_after_refresh(
+                    self._log_message, 
+                    "[red]Não conectado ao servidor. Não é possível carregar e-mails.[/red]"
+                )
+                self.call_after_refresh(self._populate_email_table)
+                self.call_after_refresh(self._update_counts)
+                return
+            
             # Seleciona pasta
-            select_success = await asyncio.get_event_loop().run_in_executor(
+            select_result = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self.imap_client.select_folder(self.current_folder)
             )
             
-            if not select_success[0]:
+            # select_folder retorna (success, message, msg_count)
+            if not isinstance(select_result, tuple) or len(select_result) < 3:
+                select_success = False
+            else:
+                select_success = select_result[0]
+            
+            if not select_success:
                 self.call_after_refresh(
                     self._log_message, 
                     f"[yellow]Não foi possível selecionar a pasta {self.current_folder}[/yellow]"
                 )
+                self.call_after_refresh(self._populate_email_table)
+                self.call_after_refresh(self._update_counts)
                 return
             
             # Busca mensagens
-            success, message_ids = await asyncio.get_event_loop().run_in_executor(
+            search_result = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self.search_engine.search_all()
             )
+            
+            if not isinstance(search_result, tuple) or len(search_result) < 2:
+                success = False
+                message_ids = []
+            else:
+                success, message_ids = search_result[:2]
             
             if not success:
                 self.call_after_refresh(
                     self._log_message, 
                     "[red]Falha ao buscar mensagens[/red]"
                 )
+                self.call_after_refresh(self._populate_email_table)
+                self.call_after_refresh(self._update_counts)
                 return
             
             if not message_ids:
@@ -784,7 +837,136 @@ class MainScreen(Screen):
                 f"[red]Erro ao carregar e-mails: {e}[/red]"
             )
             # Tenta atualizar a UI mesmo em caso de erro
+            self.call_after_refresh(self._populate_email_table)
             self.call_after_refresh(self._update_counts)
+
+    def _load_mock_emails(self) -> None:
+        """Carrega e-mails mockados para demonstração."""
+        from datetime import datetime, timedelta
+        
+        # Dados mockados de e-mails para demonstração
+        mock_emails = [
+            {
+                "id": "1",
+                "from_name": "Google Support",
+                "from_email": "support@google.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Bem-vindo ao Gmail Manager TUI",
+                "date_str": (datetime.now() - timedelta(hours=1)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(hours=1),
+                "is_read": False,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "Este é um e-mail de demonstração. Para ver e-mails reais, configure suas credenciais no arquivo .env.",
+            },
+            {
+                "id": "2",
+                "from_name": "GitHub Notifications",
+                "from_email": "notifications@github.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Novo commit no seu repositório",
+                "date_str": (datetime.now() - timedelta(hours=2)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(hours=2),
+                "is_read": False,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "Um novo commit foi adicionado ao seu repositório.",
+            },
+            {
+                "id": "3",
+                "from_name": "Amazon.com.br",
+                "from_email": "pedidos@amazon.com.br",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Seu pedido foi enviado",
+                "date_str": (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=1),
+                "is_read": True,
+                "attachment_count": 1,
+                "flags": "",
+                "snippet": "Seu pedido #12345 foi enviado e chegará em breve.",
+            },
+            {
+                "id": "4",
+                "from_name": "Microsoft Teams",
+                "from_email": "noreply@teams.microsoft.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Você foi adicionado a uma equipe",
+                "date_str": (datetime.now() - timedelta(days=2)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=2),
+                "is_read": True,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "João Silva adicionou você à equipe 'Projeto X'.",
+            },
+            {
+                "id": "5",
+                "from_name": "Netflix",
+                "from_email": "info@netflix.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Novidades que você vai adorar",
+                "date_str": (datetime.now() - timedelta(days=3)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=3),
+                "is_read": True,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "Confira os novos filmes e séries adicionados este mês.",
+            },
+            {
+                "id": "6",
+                "from_name": "LinkedIn",
+                "from_email": "messages-noreply@linkedin.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Nova conexão sugerida",
+                "date_str": (datetime.now() - timedelta(days=5)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=5),
+                "is_read": False,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "Maria Santos quer se conectar com você no LinkedIn.",
+            },
+            {
+                "id": "7",
+                "from_name": "Dropbox",
+                "from_email": "no-reply@dropbox.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Arquivo compartilhado com você",
+                "date_str": (datetime.now() - timedelta(days=7)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=7),
+                "is_read": True,
+                "attachment_count": 2,
+                "flags": "",
+                "snippet": "Carlos Oliveira compartilhou 2 arquivos com você.",
+            },
+            {
+                "id": "8",
+                "from_name": "Slack",
+                "from_email": "notification@slack.com",
+                "to_name": "Usuário",
+                "to_email": "teste@gmail.com",
+                "subject": "Nova mensagem no canal #geral",
+                "date_str": (datetime.now() - timedelta(days=10)).strftime("%d/%m/%Y %H:%M"),
+                "date_obj": datetime.now() - timedelta(days=10),
+                "is_read": True,
+                "attachment_count": 0,
+                "flags": "",
+                "snippet": "Ana Pereira mencionou você no canal #geral.",
+            },
+        ]
+        
+        self.emails = mock_emails
+        self.call_after_refresh(self._populate_email_table)
+        self.call_after_refresh(self._update_counts)
+        self.call_after_refresh(
+            self._log_message,
+            f"[green]{len(mock_emails)} e-mails de demonstração carregados[/green]"
+        )
 
     def _log_message(self, message: str) -> None:
         """Adiciona mensagem ao log."""
