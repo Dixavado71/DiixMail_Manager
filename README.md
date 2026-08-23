@@ -1,6 +1,17 @@
-# Gmail Manager CLI
+# Gmail Manager TUI - Interface Premium com Textual
 
-Gerenciador de e-mail Gmail via linha de comando (CLI) usando IMAP. Uma aplicação Python simples, modular e organizada para gerenciar sua conta Gmail, com foco em facilitar a localização, leitura, organização e **download de arquivos/anexos** recebidos por e-mail.
+Gerenciador de e-mail Gmail com interface **TUI (Text User Interface)** moderna usando o framework **Textual**. Uma aplicação premium, completa e elegante para gerenciar sua conta Gmail, com foco em facilitar a localização, leitura, organização e **download de arquivos/anexos** recebidos por e-mail.
+
+## 🚀 Novidade: Interface TUI Premium!
+
+Agora com interface moderna estilo "app nativo" no terminal:
+- ✨ Widgets reais: botões, inputs, scrollbars, abas
+- 🎨 Estilo com CSS no terminal
+- 🖱️ Suporte completo a mouse
+- 📐 Layouts dinâmicos e responsivos
+- ⚡ Concorrência nativa com workers assíncronos
+- 🌓 Temas dark/light mode
+- 🔍 Preview de e-mails em tempo real
 
 ## ⚠️ Importante
 
@@ -11,6 +22,7 @@ Este projeto usa **autenticação por Senha de App do Google** via IMAP. Não us
 - Python 3.11 ou superior
 - Conta Gmail com acesso IMAP habilitado
 - Senha de App do Google (não é a senha normal da conta)
+- Terminal moderno com suporte a Unicode
 
 ## Instalação
 
@@ -54,36 +66,39 @@ DOWNLOAD_DIR=downloads
 8. Copie a senha de 16 caracteres gerada
 9. Cole no arquivo `.env` como `GMAIL_APP_PASSWORD`
 
-**Importante:** 
+**Importante:**
 - Nunca compartilhe sua Senha de App
 - Use apenas no arquivo `.env` (que está no `.gitignore`)
 - Se suspeitar de comprometimento, revoke a senha e gere uma nova
 
 ## Como Executar
 
+### Interface TUI Premium (Recomendado)
+
 ```bash
 python app.py
 ```
 
-Após conectar, você verá o dashboard principal:
+Você verá uma interface moderna com:
+- Header com relógio e título
+- Sidebar com navegação rápida
+- Tabela de e-mails interativa
+- Preview em tempo real
+- Footer com atalhos
+- Suporte completo a mouse
 
+### Interface CLI Clássica
+
+```bash
+python app.py --cli
 ```
-╔════════════════════════════════════════════╗
-║              GMAIL MANAGER                 ║
-╠════════════════════════════════════════════╣
-║ Conta: usuario@gmail.com                   ║
-║ Status: ● Conectado                        ║
-╚════════════════════════════════════════════╝
 
-1. Caixa de entrada
-2. Pastas / Marcadores
-3. Pesquisar e-mails
-4. Abrir e-mail
-5. Selecionar e-mails
-6. Baixar anexos
-7. Gerenciar e-mails
-8. Atualizar
-0. Sair
+Para manter a experiência tradicional baseada em menus.
+
+### Ajuda
+
+```bash
+python app.py --help
 ```
 
 ## Estrutura do Projeto
@@ -120,14 +135,48 @@ gmail-manager/
 │   │   ├── __init__.py
 │   │   └── downloader.py  # Download de anexos
 │   │
-│   └── cli/
+│   ├── cli/
+│   │   ├── __init__.py
+│   │   └── menu.py        # Interface CLI clássica
+│   │
+│   └── tui/
 │       ├── __init__.py
-│       └── menu.py        # Interface CLI
+│       └── app.py         # Interface TUI Premium (Textual)
 │
 └── downloads/             # Pasta para anexos baixados
 ```
 
-## Funcionalidades
+## Funcionalidades da Interface TUI
+
+### 1. Dashboard Principal
+- Status de conexão em tempo real
+- Contador de e-mails e selecionados
+- Navegação rápida por sidebar
+- Preview de e-mail selecionado
+
+### 2. Tabela de E-mails Interativa
+- Ordenação por colunas
+- Seleção múltipla com clique
+- Ícones de status (novo/lido/anexos)
+- Hover effects e cursor personalizado
+
+### 3. Atalhos de Teclado
+- `[q]` - Sair
+- `[r]` - Atualizar e-mails
+- `[1-3]` - Navegar entre tabs
+- `[t]` - Toggle preview
+- `[d]` - Excluir selecionados
+- `[s]` - Pesquisar
+- `[?]` - Ajuda
+
+### 4. Recursos Avançados
+- Downloads em background
+- Modais de confirmação
+- Notificações toast
+- Log de atividades
+- Estatísticas detalhadas
+
+## Funcionalidades da Interface CLI
 
 ### 1. Caixa de Entrada
 - Lista e-mails com ID, data, remetente, assunto, status e anexos
@@ -153,17 +202,7 @@ is:unread                 # Não lidos
 texto livre               # Busca em tudo
 ```
 
-### 4. Abrir E-mail
-- Visualiza remetente, destinatário, data e assunto
-- Mostra conteúdo em texto plano ou HTML (convertido)
-- Identifica e lista anexos disponíveis
-
-### 5. Seleção Múltipla
-- Seleciona e-mails individuais: `1,3,5`
-- Seleciona intervalo: `1-10`
-- Seleciona todos: `all`
-
-### 6. Download de Anexos
+### 4. Download de Anexos
 - Baixa anexos de e-mail individual
 - Baixa anexos de múltiplos e-mails selecionados
 - Opções de organização:
@@ -173,16 +212,20 @@ texto livre               # Busca em tudo
   - Sem organização (todos na pasta downloads/)
 - Evita sobrescrever arquivos existentes
 
-### 7. Gerenciamento de E-mails
-- Marcar como lido/não lido
-- Excluir e-mails (com confirmação)
-- Mover e-mails entre pastas
+## Tecnologias Utilizadas
 
-### 8. Segurança
-- Credenciais nunca são impressas no terminal
-- Senha armazenada apenas no `.env`
-- Conteúdo HTML convertido para texto (sem execução)
-- Confirmação antes de ações destrutivas
+### Interface TUI
+- **Textual** - Framework TUI moderno (mesmo criador do Rich)
+- **Rich** - Renderização rica no terminal
+
+### Interface CLI
+- **Rich** - Painéis, tabelas e formatação
+- **python-dotenv** - Carregamento de variáveis de ambiente
+
+### Backend
+- **imaplib** (stdlib) - Cliente IMAP
+- **email** (stdlib) - Parser de e-mails
+- **pathlib** (stdlib) - Manipulação de paths
 
 ## Limitações do IMAP/Gmail
 
@@ -214,12 +257,18 @@ texto livre               # Busca em tudo
 - Tente usar a busca `ALL` ou `last:365`
 - Algumas pastas podem estar vazias
 
+### Problemas com TUI
+- Use terminais modernos (iTerm2, Windows Terminal, Kitty, Alacritty)
+- Redimensione a janela se houver problemas de layout
+- Use `--cli` como fallback
+
 ## Dependências
 
-O projeto usa apenas bibliotecas essenciais:
+O projeto usa bibliotecas modernas e essenciais:
 
-- `python-dotenv` - Carregamento de variáveis de ambiente
-- `rich` - Interface CLI bonita e organizada
+- `textual>=0.47.0` - Framework TUI completo
+- `rich>=13.0.0` - Renderização rica no terminal
+- `python-dotenv>=1.0.0` - Carregamento de variáveis de ambiente
 
 A biblioteca padrão Python é usada sempre que possível (`imaplib`, `email`, `pathlib`).
 
@@ -236,4 +285,4 @@ Este projeto é fornecido "como está" para fins educacionais e de uso pessoal.
 
 ---
 
-**Gmail Manager CLI** - Simplificando o gerenciamento de e-mails via terminal.
+**Gmail Manager TUI** - A evolução do gerenciamento de e-mails via terminal com interface premium.
