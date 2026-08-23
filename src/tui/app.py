@@ -666,13 +666,13 @@ class MainScreen(Screen):
             
             if success:
                 self.is_connected = True
-                self.call_from_thread(self._update_status, True, message)
-                self.call_from_thread(self._load_emails)
+                self.app.call_from_thread(self._update_status, True, message)
+                self.app.call_from_thread(self._load_emails)
             else:
-                self.call_from_thread(self._update_status, False, message)
+                self.app.call_from_thread(self._update_status, False, message)
                 
         except Exception as e:
-            self.call_from_thread(self._update_status, False, f"Erro: {e}")
+            self.app.call_from_thread(self._update_status, False, f"Erro: {e}")
 
     def _update_status(self, connected: bool, message: str) -> None:
         """Atualiza a barra de status."""
