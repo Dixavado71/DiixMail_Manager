@@ -398,7 +398,7 @@ ModalScreen {
     scrollbar-background: $surface;
     scrollbar-color: $primary;
     scrollbar-color-hover: $primary-light;
-    scrollbar-size: 1;
+    scrollbar-size-vertical: 1;
 }
 """
 
@@ -456,26 +456,26 @@ class EmailDetailScreen(ModalScreen[str | None]):
             
             with ScrollableContainer(id="modal-content"):
                 # Informações básicas
-                yield Static(f"[bold]De:[/bold] {self.email_data.get('from', 'N/A')}", "")
-                yield Static(f"[bold]Para:[/bold] {self.email_data.get('to', 'N/A')}", "")
-                yield Static(f"[bold]Data:[/bold] {self.email_data.get('date', 'N/A')}", "")
-                yield Static(f"[bold]Assunto:[/bold] {self.email_data.get('subject', 'N/A')}", "")
-                yield Static("", "")
+                yield Static(f"[bold]De:[/bold] {self.email_data.get('from', 'N/A')}")
+                yield Static(f"[bold]Para:[/bold] {self.email_data.get('to', 'N/A')}")
+                yield Static(f"[bold]Data:[/bold] {self.email_data.get('date', 'N/A')}")
+                yield Static(f"[bold]Assunto:[/bold] {self.email_data.get('subject', 'N/A')}")
+                yield Static("")
                 
                 # Corpo do e-mail
-                yield Static("[bold]Conteúdo:[/bold]", "")
+                yield Static("[bold]Conteúdo:[/bold]")
                 content = self.email_data.get('body', 'Sem conteúdo')
                 # Limita o tamanho para não sobrecarregar
                 if len(content) > 2000:
                     content = content[:2000] + "\n\n... (conteúdo truncado)"
-                yield Static(content, "")
+                yield Static(content)
                 
                 # Anexos
                 attachments = self.email_data.get('attachments', [])
                 if attachments:
-                    yield Static("\n[bold]📎 Anexos:[/bold]", "")
+                    yield Static("\n[bold]📎 Anexos:[/bold]")
                     for att in attachments:
-                        yield Static(f"  • {att.get('filename', 'Unknown')} ({att.get('size', '?')} bytes)", "")
+                        yield Static(f"  • {att.get('filename', 'Unknown')} ({att.get('size', '?')} bytes)")
 
             with Horizontal(id="modal-buttons"):
                 yield Button("Fechar", variant="primary", id="btn-close")
@@ -500,8 +500,8 @@ class DownloadOptionsScreen(ModalScreen[dict[str, Any]]):
             yield Static("⬇️ Opções de Download", id="modal-title")
             
             with Vertical(id="modal-content"):
-                yield Static(f"E-mails selecionados: {self.selected_count}", "")
-                yield Static("", "")
+                yield Static(f"E-mails selecionados: {self.selected_count}")
+                yield Static("")
                 
                 yield Label("Organizar por:", classes="title")
                 with RadioSet(id="organize-options"):
@@ -510,7 +510,7 @@ class DownloadOptionsScreen(ModalScreen[dict[str, Any]]):
                     yield RadioButton("Por assunto")
                     yield RadioButton("Por data (ano/mês)")
                 
-                yield Static("", "")
+                yield Static("")
                 yield Checkbox("Substituir arquivos existentes", value=False)
 
             with Horizontal(id="modal-buttons"):
@@ -573,7 +573,7 @@ class MainScreen(Screen):
             # Sidebar com navegação
             with Vertical(id="sidebar"):
                 yield Static("🚀 GMAIL MANAGER", classes="title")
-                yield Static("", "")
+                yield Static("")
                 
                 yield Button("📥 Caixa de Entrada", variant="primary", id="btn-inbox")
                 yield Button("📤 Enviados", variant="default", id="btn-sent")
@@ -582,18 +582,18 @@ class MainScreen(Screen):
                 yield Button("⭐ Importantes", variant="default", id="btn-important")
                 yield Button("🗑️ Lixeira", variant="default", id="btn-trash")
                 
-                yield Static("", "")
-                yield Static("─" * 25, "")
-                yield Static("", "")
+                yield Static("")
+                yield Static("─" * 25)
+                yield Static("")
                 
                 yield Button("⬇️ Baixar Anexos", variant="warning", id="btn-download")
                 yield Button("🏷️ Mover", variant="default", id="btn-move")
-                yield Button("❌ Excluir", variant="danger", id="btn-delete")
+                yield Button("❌ Excluir", variant="error", id="btn-delete")
                 yield Button("🔄 Atualizar", variant="default", id="btn-refresh")
                 
-                yield Static("", "")
-                yield Static("─" * 25, "")
-                yield Static("", "")
+                yield Static("")
+                yield Static("─" * 25)
+                yield Static("")
                 
                 yield Button("🚪 Sair", variant="default", id="btn-exit")
         
@@ -603,19 +603,19 @@ class MainScreen(Screen):
             with Horizontal(id="status-bar"):
                 yield Static("● ", id="status-indicator", classes="status-disconnected")
                 yield Static("Desconectado", id="status-text")
-                yield Static("|", "")
-                yield Static("Pasta: ", "")
+                yield Static("|")
+                yield Static("Pasta: ")
                 yield Static("INBOX", id="current-folder")
-                yield Static("|", "")
-                yield Static("E-mails: ", "")
+                yield Static("|")
+                yield Static("E-mails: ")
                 yield Static("0", id="email-count")
-                yield Static("|", "")
-                yield Static("Selecionados: ", "")
+                yield Static("|")
+                yield Static("Selecionados: ")
                 yield Static("0", id="selected-count")
             
             # Área de conteúdo com tabs
             with TabbedContent(initial="emails"):
-                with TabPane("📧 E-mails", id="tab-emails"):
+                with TabPane("📧 E-mails", id="emails"):
                     # Tabela de e-mails
                     yield DataTable(id="email-table")
                     
@@ -624,11 +624,11 @@ class MainScreen(Screen):
                         yield Static("📖 Preview do E-mail", classes="title")
                         yield Static("Selecione um e-mail para visualizar", id="preview-content")
                 
-                with TabPane("📊 Estatísticas", id="tab-stats"):
+                with TabPane("📊 Estatísticas", id="stats"):
                     with ScrollableContainer():
                         yield Static("Carregando estatísticas...", id="stats-content")
                 
-                with TabPane("📋 Log", id="tab-log"):
+                with TabPane("📋 Log", id="log"):
                     yield RichLog(markup=True, highlight=True, id="log-widget")
         
         yield Footer()
