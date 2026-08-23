@@ -635,22 +635,31 @@ class MainScreen(Screen):
 
     def on_mount(self) -> None:
         """Executado quando a tela é montada."""
-        self._connect_to_server()
+        # Configura a tabela primeiro
         self._setup_email_table()
+        # Adiciona mensagem inicial no log
+        self.call_after_refresh(self._log_message, "[blue]Iniciando conexão com o servidor...[/blue]")
+        # Conecta ao servidor após a UI estar pronta
+        self.set_timer(0.3, self._connect_to_server)
 
     def _setup_email_table(self) -> None:
         """Configura a tabela de e-mails."""
-        table = self.query_one("#email-table", DataTable)
-        table.add_columns(
-            "✓",  # Selecionado
-            "ID",
-            "Status",
-            "Remetente",
-            "Assunto",
-            "Data",
-            "Anexos",
-        )
-        table.cursor_type = "row"
+        try:
+            table = self.query_one("#email-table", DataTable)
+            table.clear()
+            table.add_columns(
+                "✓",  # Selecionado
+                "ID",
+                "Status",
+                "Remetente",
+                "Assunto",
+                "Data",
+                "Anexos",
+            )
+            table.cursor_type = "row"
+        except Exception as e:
+            # Se a tabela ainda não estiver pronta, tenta novamente após um breve delay
+            self.set_timer(0.5, self._setup_email_table)
 
     @work(exclusive=True)
     async def _connect_to_server(self) -> None:
@@ -674,23 +683,33 @@ class MainScreen(Screen):
                 self.call_after_refresh(self._update_status, False, message)
                 
         except Exception as e:
-            self.call_after_refresh(self._update_status, False, f"Erro: {e}")
+            self.call_after_refresh(self._update_status, False, str(e))
 
     def _update_status(self, connected: bool, message: str) -> None:
         """Atualiza a barra de status."""
-        indicator = self.query_one("#status-indicator", Static)
-        status_text = self.query_one("#status-text", Static)
-        
-        if connected:
-            indicator.update("🟢 ")
-            indicator.remove_class("status-disconnected")
-            indicator.add_class("status-connected")
-            status_text.update("Conectado")
-        else:
-            indicator.update("🔴 ")
-            indicator.remove_class("status-connected")
-            indicator.add_class("status-disconnected")
-            status_text.update(message)
+        try:
+            indicator = self.query_one("#status-indicator", Static)
+            status_text = self.query_one("#status-text", Static)
+            
+            if connected:
+                indicator.update("🟢 ")
+                indicator.remove_class("status-disconnected")
+                indicator.add_class("status-connected")
+                status_text.update("Conectado ao servidor")
+                # Atualiza mensagem no log
+                self._log_message("[green]✓ Conexão estabelecida com sucesso[/green]")
+            else:
+                indicator.update("🔴 ")
+                indicator.remove_class("status-connected")
+                indicator.add_class("status-disconnected")
+                status_msg = message[:50] if message else "Erro desconhecido"
+                status_text.update(status_msg)
+                # Atualiza mensagem no log
+                self._log_message(f"[red]✗ Erro na conexão: {status_msg}[/red]")
+        except Exception as e:
+            # Falha silenciosa na atualização do status
+            print(f"Erro ao atualizar status: {e}")
+            pass
 
     @work(exclusive=True)
     async def _load_emails(self) -> None:
@@ -771,8 +790,11 @@ class MainScreen(Screen):
         """Adiciona mensagem ao log."""
         try:
             log_widget = self.query_one("#log-widget", RichLog)
-            log_widget.write(message)
-        except Exception:
+            if log_widget:
+                log_widget.write(message)
+        except Exception as e:
+            # Se não conseguir escrever no log, imprime no console para debug
+            print(f"[LOG] {message}")
             pass
 
     def _populate_email_table(self) -> None:
@@ -783,24 +805,32 @@ class MainScreen(Screen):
             
             if not self.emails:
                 # Adiciona uma linha informativa quando não há e-mails
-                table.add_row("", "", "📭", "Nenhum e-mail", "", "", "", key="empty")
+                table.add_row("", "", "📭", "Nenhum e-mail encontrado", "", "", "", key="empty")
                 return
             
             for email in self.emails:
-                msg_id = email.get('id', '')
+                msg_id = str(email.get('id', ''))
                 is_read = email.get('is_read', True)
                 attachment_count = email.get('attachment_count', 0)
                 
                 status_icon = "🆕" if not is_read else "📬"
                 attachment_icon = f"📎{attachment_count}" if attachment_count > 0 else ""
                 
+                from_display = email.get('from_name', '') or email.get('from', '')
+                from_display = from_display[:30] if from_display else "Desconhecido"
+                
+                subject_display = email.get('subject', '') or "(Sem assunto)"
+                subject_display = subject_display[:40]
+                
+                date_display = email.get('date_str', '')[:16] if email.get('date_str') else ""
+                
                 table.add_row(
                     "✓" if msg_id in self.selected_emails else "",
                     msg_id,
                     status_icon,
-                    email.get('from_name', '')[:30] or email.get('from', '')[:30],
-                    email.get('subject', '')[:40] or "(Sem assunto)",
-                    email.get('date_str', '')[:10],
+                    from_display,
+                    subject_display,
+                    date_display,
                     attachment_icon,
                     key=msg_id,
                 )
@@ -815,11 +845,14 @@ class MainScreen(Screen):
     def _update_counts(self) -> None:
         """Atualiza contadores na UI."""
         try:
-            email_count = self.query_one("#email-count", Static)
-            selected_count = self.query_one("#selected-count", Static)
-            email_count.update(str(len(self.emails)))
-            selected_count.update(str(len(self.selected_emails)))
-        except Exception:
+            email_count_widget = self.query_one("#email-count", Static)
+            selected_count_widget = self.query_one("#selected-count", Static)
+            folder_widget = self.query_one("#current-folder", Static)
+            
+            email_count_widget.update(str(len(self.emails)))
+            selected_count_widget.update(str(len(self.selected_emails)))
+            folder_widget.update(self.current_folder)
+        except Exception as e:
             # Silenciosamente ignora erros de atualização de UI
             pass
 
