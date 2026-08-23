@@ -1,9 +1,44 @@
 ```
-# Python
+# Python-specific ignores
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
+*.py~
+*.py.class
+*.py.obj
+*.py.out
+*.py.dll
+*.py.so
+*.py.a
+*.py.o
+*.py.class
+*.py.obj
+*.py.out
+*.py.exe
+*.py.dll
+*.py.so
+*.py.a
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+.ENV/
+
+# Dependencies
+pip-wheel-metadata/
+.tox/
+.coverage
+htmlcov/
+.coverage.*
+.nox/
+.pytest_cache/
+.mypy_cache/
+.hypothesis/
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -21,39 +56,19 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
-venv/
-env/
-ENV/
-.venv/
-.env/
-
-# Testing
-.coverage
-htmlcov/
-.tox/
-.nox/
-.coverage.*
-.cache
-.pytest_cache/
-.hypothesis/
-
-# IDE
+# IDE and editor files
 .vscode/
 .idea/
 *.swp
 *.swo
 *.tmp
 
-# Logs
-*.log
-
-# Environment variables
-.env
-.env.local
-*.env.*
-
-# OS
+# OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 ```
