@@ -1,13 +1,22 @@
-"""Menu e interface CLI do Gmail Manager."""
+"""Menu e interface CLI do Gmail Manager - Versão Premium."""
 
 import sys
 from typing import Optional, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+import time
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.prompt import Prompt, Confirm
 from rich.text import Text
+from rich.live import Live
+from rich.spinner import Spinner
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.layout import Layout
+from rich.align import Align
+from rich.style import Style
 
 from ..config.settings import Settings
 from ..imap.client import IMAPClient
@@ -18,17 +27,21 @@ from ..attachments.downloader import AttachmentDownloader
 
 
 class Menu:
-    """Classe principal para a interface CLI do aplicativo."""
+    """Classe principal para a interface CLI premium do aplicativo."""
 
     def __init__(self, settings: Settings):
         """
-        Inicializa o menu CLI.
+        Inicializa o menu CLI premium.
 
         Args:
             settings: Configurações do aplicativo
         """
         self.settings = settings
-        self.console = Console()
+        self.console = Console(force_terminal=True)
+        
+        # Thread pool para operações assíncronas
+        self.executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="gmail_worker")
+        self.lock = Lock()
 
         # Inicializa componentes
         self.imap_client = IMAPClient(settings.imap_server, settings.imap_port)
@@ -42,6 +55,8 @@ class Menu:
         self.current_messages: List[str] = []
         self.selected_messages: List[str] = []
         self.is_connected = False
+        self.cache_enabled = True
+        self.message_cache = {}
 
     def start(self) -> None:
         """Inicia a aplicação e o loop principal do menu."""
@@ -89,40 +104,58 @@ class Menu:
                 self._reconnect()
 
     def _show_header(self) -> None:
-        """Exibe o cabeçalho da aplicação."""
-        header = Panel(
-            Text("GMAIL MANAGER CLI", style="bold white", justify="center"),
-            title="[bold blue]╔════════════════════════════════════════════╗[/bold blue]",
-            subtitle="[bold blue]╚════════════════════════════════════════════╝[/bold blue]",
-            border_style="blue",
+        """Exibe o cabeçalho premium da aplicação."""
+        header_text = Text.assemble(
+            ("╔══════════════════════════════════════════════╗\n", "bold blue"),
+            ("║         ", "blue"),
+            ("GMAIL MANAGER CLI", "bold white"),
+            ("          ║\n", "blue"),
+            ("║      Gerenciador Premium de E-mails      ║\n", "cyan"),
+            ("╚══════════════════════════════════════════════╝", "bold blue"),
         )
-        self.console.print(header)
+        self.console.print(header_text)
 
     def _connect(self) -> bool:
         """
-        Realiza conexão com o Gmail.
+        Realiza conexão com o Gmail usando thread pool.
 
         Returns:
             bool: True se conectado com sucesso
         """
-        self.console.print("\n[cyan]Conectando ao Gmail...[/cyan]")
+        self.console.print("\n[cyan bold]⚡ Conectando ao Gmail...[/cyan bold]")
 
-        success, message = self.imap_client.connect(
+        # Usa thread para não bloquear a UI
+        future = self.executor.submit(
+            self.imap_client.connect,
             self.settings.gmail_email,
             self.settings.gmail_app_password,
         )
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=self.console,
+        ) as progress:
+            task = progress.add_task("Autenticando...", total=None)
+            
+            try:
+                success, message = future.result(timeout=30)
+                progress.update(task, completed=True)
+            except Exception as e:
+                self.console.print(f"\n[red]✗ Erro na conexão: {e}[/red]")
+                return False
 
         if success:
             self.is_connected = True
-            self.console.print(f"[green]✓ {message}[/green]")
+            self.console.print(f"[green bold]✓ {message}[/green bold]")
 
             # Seleciona INBOX por padrão
             success, _, count = self.imap_client.select_folder("INBOX")
             if success:
                 self.current_folder = "INBOX"
-                self.console.print(f"[green]✓ Caixa de entrada selecionada ({count} mensagens)[/green]")
+                self.console.print(f"[green]✓ Caixa de entrada selecionada ([bold]{count}[/bold] mensagens)[/green]")
         else:
-            self.console.print(f"[red]✗ Erro: {message}[/red]")
+            self.console.print(f"\n[red]✗ Erro: {message}[/red]")
             self.console.print("\n[yellow]Verifique:[/yellow]")
             self.console.print("  1. Suas credenciais no arquivo .env")
             self.console.print("  2. Se o acesso IMAP está habilitado no Gmail")
@@ -144,36 +177,54 @@ class Menu:
         return self._connect()
 
     def _show_dashboard(self) -> None:
-        """Exibe o dashboard principal."""
+        """Exibe o dashboard premium com layout moderno."""
+        # Status colorido baseado no estado da conexão
+        status_icon = "🟢" if self.is_connected else "🔴"
+        status_text = "Conectado" if self.is_connected else "Desconectado"
+        status_style = "green bold" if self.is_connected else "red"
+        
+        # Painel de status
         dashboard = Panel(
-            f"[bold]Conta:[/bold] {self.settings.gmail_email}\n"
-            f"[bold]Status:[/bold] {'● Conectado' if self.is_connected else '○ Desconectado'}\n"
-            f"[bold]Pasta atual:[/bold] {self.current_folder}\n"
-            f"[bold]Selecionados:[/bold] {len(self.selected_messages)} e-mail(s)",
-            title="[bold green]GMAIL MANAGER[/bold green]",
+            f"[bold]📧 Conta:[/bold] {self.settings.gmail_email}\n"
+            f"[bold]Status:[/bold] [{status_style}]{status_icon} {status_text}[/{status_style}]\n"
+            f"[bold]📁 Pasta atual:[/bold] [cyan]{self.current_folder}[/cyan]\n"
+            f"[bold]📌 Selecionados:[/bold] [yellow]{len(self.selected_messages)}[/yellow] e-mail(s)",
+            title="[bold green]🚀 GMAIL MANAGER PREMIUM[/bold green]",
             border_style="green",
+            padding=(1, 2),
         )
         self.console.print("\n")
         self.console.print(dashboard)
 
-        menu_table = Table(show_header=False, box=None, padding=(0, 2))
-        menu_table.add_column("Opção", style="cyan")
-        menu_table.add_column("Descrição", style="white")
+        # Menu estilizado
+        menu_table = Table(
+            show_header=False, 
+            box=None, 
+            padding=(0, 3),
+            expand=True,
+        )
+        menu_table.add_column("Opção", style="cyan bold", width=4)
+        menu_table.add_column("Descrição", style="white", ratio=1)
+        menu_table.add_column("Ícone", style="dim", justify="right")
 
         menu_items = [
-            ("1", "Caixa de entrada"),
-            ("2", "Pastas / Marcadores"),
-            ("3", "Pesquisar e-mails"),
-            ("4", "Abrir e-mail"),
-            ("5", "Selecionar e-mails"),
-            ("6", "Baixar anexos"),
-            ("7", "Gerenciar e-mails"),
-            ("8", "Atualizar"),
-            ("0", "Sair"),
+            ("1", "Caixa de entrada", "📥"),
+            ("2", "Pastas / Marcadores", "📁"),
+            ("3", "Pesquisar e-mails", "🔍"),
+            ("4", "Abrir e-mail", "📖"),
+            ("5", "Selecionar e-mails", "✓"),
+            ("6", "Baixar anexos", "⬇️"),
+            ("7", "Gerenciar e-mails", "⚙️"),
+            ("8", "Atualizar", "🔄"),
+            ("0", "Sair", "🚪"),
         ]
 
-        for option, description in menu_items:
-            menu_table.add_row(f"[bold cyan]{option}.[/bold cyan]", description)
+        for option, description, icon in menu_items:
+            menu_table.add_row(
+                f"[bold cyan]{option}.[/bold cyan]", 
+                description,
+                icon
+            )
 
         self.console.print(menu_table)
 
@@ -187,8 +238,8 @@ class Menu:
         return Prompt.ask("\n[bold]Escolha uma opção[/bold]", choices=[str(i) for i in range(9)])
 
     def _show_inbox(self) -> None:
-        """Exibe a caixa de entrada."""
-        self.console.print("\n[cyan]Carregando caixa de entrada...[/cyan]")
+        """Exibe a caixa de entrada com carregamento assíncrono."""
+        self.console.print("\n[cyan bold]⚡ Carregando caixa de entrada...[/cyan bold]")
 
         # Seleciona INBOX
         success, _, count = self.imap_client.select_folder("INBOX")
@@ -198,8 +249,21 @@ class Menu:
 
         self.current_folder = "INBOX"
 
-        # Busca todas as mensagens
-        success, message_ids = self.search_engine.search_all()
+        # Busca todas as mensagens usando thread
+        future = self.executor.submit(self.search_engine.search_all)
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=self.console,
+        ) as progress:
+            task = progress.add_task("Buscando mensagens...", total=None)
+            try:
+                success, message_ids = future.result(timeout=60)
+                progress.update(task, completed=True)
+            except Exception as e:
+                self.console.print(f"[red]Erro na busca: {e}[/red]")
+                return
 
         if not success or not message_ids:
             self.console.print("[yellow]Nenhum e-mail encontrado.[/yellow]")
@@ -208,31 +272,37 @@ class Menu:
 
         self.current_messages = message_ids
 
-        # Obtém resumo das últimas 50 mensagens
-        summaries = self.message_manager.get_messages_summary(message_ids, limit=50)
+        # Obtém resumo das últimas 50 mensagens com cache
+        summaries = self._get_messages_summary_cached(message_ids, limit=50)
 
         if not summaries:
             self.console.print("[yellow]Nenhum e-mail encontrado.[/yellow]")
             Prompt.ask("\nPressione Enter para continuar")
             return
 
-        # Cria tabela
-        table = Table(title=f"Caixa de Entrada ({len(message_ids)} e-mails total)")
-        table.add_column("ID", style="cyan", width=6)
+        # Cria tabela premium
+        table = Table(
+            title=f"📥 Caixa de Entrada ([bold cyan]{len(message_ids)}[/bold cyan] e-mails total)",
+            show_header=True,
+            header_style="bold cyan",
+            border_style="blue",
+            expand=True,
+        )
+        table.add_column("ID", style="cyan", width=6, justify="right")
         table.add_column("Data", style="white", width=16)
-        table.add_column("Remetente", style="green", width=30)
+        table.add_column("Remetente", style="green", width=35)
         table.add_column("Assunto", style="yellow", width=50)
-        table.add_column("Status", style="magenta", width=8)
-        table.add_column("Anexos", style="blue", width=8)
+        table.add_column("Status", style="magenta", width=10)
+        table.add_column("Anexos", style="blue", width=8, justify="center")
 
         for msg in summaries:
-            status = "[red]NOVO[/red]" if not msg["is_read"] else "[green]LIDO[/green]"
-            anexos = f"{msg['attachment_count']} 📎" if msg["attachment_count"] > 0 else "-"
+            status = "[red bold]🆕 NOVO[/red bold]" if not msg["is_read"] else "[green]✓ LIDO[/green]"
+            anexos = f"[blue]{msg['attachment_count']} 📎[/blue]" if msg["attachment_count"] > 0 else "—"
 
             table.add_row(
-                msg["id"],
+                f"[bold]{msg['id']}[/bold]",
                 msg["date_str"],
-                msg["from_name"][:28] + ".." if len(msg["from_name"]) > 30 else msg["from_name"],
+                msg["from_name"][:33] + "..." if len(msg["from_name"]) > 35 else msg["from_name"],
                 msg["subject"][:47] + "..." if len(msg["subject"]) > 50 else msg["subject"],
                 status,
                 anexos,
@@ -241,26 +311,86 @@ class Menu:
         self.console.print(table)
         Prompt.ask("\nPressione Enter para continuar")
 
-    def _show_folders(self) -> None:
-        """Exibe lista de pastas/marcadores."""
-        self.console.print("\n[cyan]Carregando pastas...[/cyan]")
+    def _get_messages_summary_cached(self, message_ids: list[str], limit: int = 50) -> list[dict]:
+        """
+        Obtém resumo de mensagens com cache e threads.
 
-        success, folders = self.folder_manager.list_folders()
+        Args:
+            message_ids: Lista de IDs das mensagens
+            limit: Limite máximo de mensagens
+
+        Returns:
+            list[dict]: Lista de resumos
+        """
+        if not self.cache_enabled:
+            return self.message_manager.get_messages_summary(message_ids, limit)
+
+        summaries = []
+        sorted_ids = sorted(message_ids, key=int, reverse=True)[:limit]
+
+        # Usa threads para buscar múltiplas mensagens em paralelo
+        futures = {}
+        for msg_id in sorted_ids:
+            if msg_id in self.message_cache:
+                summaries.append(self.message_cache[msg_id])
+            else:
+                future = self.executor.submit(self.message_manager.get_message_headers, msg_id)
+                futures[future] = msg_id
+
+        # Coleta resultados
+        for future in as_completed(futures):
+            msg_id = futures[future]
+            try:
+                result = future.result(timeout=10)
+                if result:
+                    with self.lock:
+                        self.message_cache[msg_id] = result
+                    summaries.append(result)
+            except Exception:
+                continue
+
+        return summaries
+
+    def _show_folders(self) -> None:
+        """Exibe lista de pastas/marcadores com carregamento assíncrono."""
+        self.console.print("\n[cyan bold]📁 Carregando pastas...[/cyan bold]")
+
+        # Busca pastas usando thread
+        future = self.executor.submit(self.folder_manager.list_folders)
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=self.console,
+        ) as progress:
+            task = progress.add_task("Listando pastas...", total=None)
+            try:
+                success, folders = future.result(timeout=30)
+                progress.update(task, completed=True)
+            except Exception as e:
+                self.console.print(f"[red]Erro ao carregar pastas: {e}[/red]")
+                return
 
         if not success or not folders:
             self.console.print("[red]Falha ao carregar pastas[/red]")
             Prompt.ask("\nPressione Enter para continuar")
             return
 
-        table = Table(title="Pastas / Marcadores Disponíveis")
-        table.add_column("Nome", style="cyan")
-        table.add_column("Exibição", style="green")
-        table.add_column("Tipo", style="yellow")
+        # Cria tabela premium de pastas
+        table = Table(
+            title="📂 Pastas / Marcadores Disponíveis",
+            show_header=True,
+            header_style="bold cyan",
+            border_style="blue",
+        )
+        table.add_column("Nome", style="cyan", width=40)
+        table.add_column("Exibição", style="green", width=30)
+        table.add_column("Tipo", style="yellow", width=10, justify="center")
 
         for folder in folders:
             folder_type = "📁" if folder["has_children"] else "📄"
             table.add_row(
-                folder["name"],
+                f"[bold]{folder['name']}[/bold]",
                 folder["display_name"],
                 folder_type,
             )
@@ -268,13 +398,16 @@ class Menu:
         self.console.print(table)
 
         # Pergunta se deseja mudar de pasta
-        if Confirm.ask("\nDeseja mudar para outra pasta?"):
-            folder_name = Prompt.ask("Digite o nome exato da pasta")
+        if Confirm.ask("\n[bold]Deseja mudar para outra pasta?[/bold]"):
+            folder_name = Prompt.ask("[cyan]Digite o nome exato da pasta[/cyan]")
             success, _, count = self.imap_client.select_folder(folder_name)
 
             if success:
                 self.current_folder = folder_name
-                self.console.print(f"[green]✓ Pasta '{folder_name}' selecionada ({count} mensagens)[/green]")
+                self.console.print(f"[green bold]✓ Pasta '[bold]{folder_name}[/bold]' selecionada ([bold cyan]{count}[/bold cyan] mensagens)[/green bold]")
+                
+                # Atualiza cache quando muda de pasta
+                self.message_cache.clear()
             else:
                 self.console.print(f"[red]✗ Falha ao selecionar pasta '{folder_name}'[/red]")
 
@@ -477,56 +610,82 @@ class Menu:
         self._show_download_stats(stats)
 
     def _download_from_selected(self) -> None:
-        """Baixa anexos dos e-mails selecionados."""
+        """Baixa anexos dos e-mails selecionados com barra de progresso."""
         if not self.selected_messages:
             self.console.print("[yellow]Nenhum e-mail selecionado. Use a opção 5 primeiro.[/yellow]")
             return
 
-        if not Confirm.ask(f"Deseja baixar anexos de {len(self.selected_messages)} e-mail(s)?"):
+        if not Confirm.ask(f"[bold]Deseja baixar anexos de {len(self.selected_messages)} e-mail(s)?[/bold]"):
             return
 
         organize = Prompt.ask(
-            "Organizar por",
+            "[cyan]Organizar por[/cyan]",
             choices=["none", "sender", "subject", "date"],
             default="none",
         )
 
         organize_by = None if organize == "none" else organize
 
-        # Carrega mensagens completas
+        # Carrega mensagens completas usando threads
         messages = []
-        self.console.print("\n[cyan]Carregando mensagens...[/cyan]")
+        self.console.print("\n[cyan bold]⚡ Carregando mensagens...[/cyan bold]")
 
-        for msg_id in self.selected_messages:
-            msg = self.message_manager.get_full_message(msg_id)
-            if msg:
-                messages.append(msg)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=self.console,
+        ) as progress:
+            task = progress.add_task("Carregando...", total=len(self.selected_messages))
+            
+            futures = {}
+            for msg_id in self.selected_messages:
+                future = self.executor.submit(self.message_manager.get_full_message, msg_id)
+                futures[future] = msg_id
+            
+            for future in as_completed(futures):
+                try:
+                    msg = future.result(timeout=30)
+                    if msg:
+                        messages.append(msg)
+                except Exception:
+                    pass
+                progress.update(task, advance=1)
 
         if not messages:
             self.console.print("[red]Falha ao carregar mensagens.[/red]")
             return
 
+        # Baixa anexos com barra de progresso
         stats = self.downloader.download_attachments_from_messages(
             messages,
             organize_by=organize_by,
+            progress_callback=lambda s: None,  # Callback opcional
         )
 
         self._show_download_stats(stats)
 
     def _show_download_stats(self, stats: dict) -> None:
-        """Exibe estatísticas de download."""
-        self.console.print("\n[bold green]✓ Download concluído![/bold green]")
-        self.console.print(f"  Mensagens processadas: {stats['messages_processed']}")
-        self.console.print(f"  Anexos encontrados: {stats['attachments_found']}")
-        self.console.print(f"  Downloads realizados: {stats['downloads_success']}")
-
-        if stats["downloads_failed"] > 0:
-            self.console.print(f"  Falhas: {stats['downloads_failed']}")
+        """Exibe estatísticas de download com painel premium."""
+        panel = Panel(
+            f"[bold green]✓ Download concluído![/bold green]\n\n"
+            f"📧 Mensagens processadas: [bold cyan]{stats['messages_processed']}[/bold cyan]\n"
+            f"📎 Anexos encontrados:  [bold yellow]{stats['attachments_found']}[/bold yellow]\n"
+            f"⬇️ Downloads realizados: [bold green]{stats['downloads_success']}[/bold green]\n"
+            + (f"❌ Falhas: [red]{stats['downloads_failed']}[/red]\n" if stats["downloads_failed"] > 0 else "")
+            + (f"📁 Pasta: [cyan]{self.settings.get_download_path()}[/cyan]" if stats['downloads_success'] > 0 else ""),
+            title="[bold]📊 Estatísticas de Download[/bold]",
+            border_style="green",
+            padding=(1, 2),
+        )
+        self.console.print("\n")
+        self.console.print(panel)
 
         if stats["errors"]:
-            self.console.print("\n[yellow]Erros:[/yellow]")
+            self.console.print("\n[yellow bold]⚠️ Erros:[/yellow bold]")
             for error in stats["errors"][:5]:
-                self.console.print(f"  • {error}")
+                self.console.print(f"  • [dim]{error}[/dim]")
 
     def _manage_emails_menu(self) -> None:
         """Menu para gerenciar e-mails."""
@@ -660,10 +819,19 @@ class Menu:
         Prompt.ask("\nPressione Enter para continuar")
 
     def _exit(self) -> None:
-        """Encerra a aplicação."""
-        self.console.print("\n[yellow]Desconectando...[/yellow]")
+        """Encerra a aplicação limpando recursos."""
+        self.console.print("\n[yellow]🔄 Desconectando...[/yellow]")
+        
+        # Limpa cache
+        self.message_cache.clear()
+        
+        # Desconecta IMAP
         self.imap_client.disconnect()
-        self.console.print("[green]✓ Aplicação encerrada. Até logo![/green]")
+        
+        # Shutdown thread pool
+        self.executor.shutdown(wait=False)
+        
+        self.console.print("[green bold]✓ Aplicação encerrada. Até logo! 👋[/green bold]")
 
     @staticmethod
     def _format_size(size_bytes: int) -> str:
