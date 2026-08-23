@@ -1,1 +1,49 @@
-Nothing needs to be added to .gitignore since only a markdown file (RELATORIO_COMPLETO.md) was added, which is a source/config file and should not be ignored.
+```
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Logs
+*.log
+
+# Coverage
+.coverage
+htmlcov/
+.coverage.*
+.cov-report
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+```
